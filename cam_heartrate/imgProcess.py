@@ -3,9 +3,11 @@ import numpy as np
 import random
 import subprocess
 import os
+import eventlet
+import eventlet.queue
 import matplotlib.pyplot as plt
 import re
-# import hrFaceDetection as hr
+from sklearn.decomposition import FastICA
 
 # Toggle these for different ROIs
 REMOVE_EYES = False
@@ -38,7 +40,10 @@ EYE_LOWER_FRAC = 0.25
 EYE_UPPER_FRAC = 0.5
 
 BOX_ERROR_MAX = 0.5
+MAX_FRAME_BUFF = 40000
 
+pool = eventlet.GreenPool()
+faceCascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
 
 def segment(image, faceBox):
     # if USE_MY_GRABCUT:
@@ -166,6 +171,10 @@ def changeFrame(frame, masked):
     changed = cv2.merge([r,g,b])
     return changed
 
+def convert2MatplotColor(frame):
+    b, g, r = cv2.split(frame)
+    return cv2.merge([r,g,b])
+
 def plotFrame(frame1, frame2):
     plt.figure(figsize=(9, 7), facecolor='w')
     ax1 = plt.subplot(121)
@@ -179,20 +188,25 @@ def plotFrame(frame1, frame2):
 
 def getRotationInfo(video):
     cmd = 'ffmpeg -i %s' % video
+    rotation = -1
+    try:
+        p = subprocess.Popen(
+            cmd.split(" "),
+            stderr=subprocess.PIPE,
+            close_fds=True
+        )
+        stdout, stderr = p.communicate()
 
-    p = subprocess.Popen(
-        cmd.split(" "),
-        stderr=subprocess.PIPE,
-        close_fds=True
-    )
-    stdout, stderr = p.communicate()
+        reo_rotation = re.compile('rotate\s+:\s(?P<rotation>.*)')
+        decoded = stderr.decode("utf-8")
+        match_rotation = reo_rotation.search(decoded)
+        if match_rotation is None:
+            return -1
+        rotation = match_rotation.group("rotation")
+    except FileNotFoundError:
+        print("Waringing: can't get roation inforamtion")
+        return -1
 
-    reo_rotation = re.compile('rotate\s+:\s(?P<rotation>.*)')
-    decoded = stderr.decode("utf-8")
-    match_rotation = reo_rotation.search(decoded)
-    if match_rotation is None:
-        return 0
-    rotation = match_rotation.group("rotation")
     if rotation == "90":
         return 90
     elif rotation == "180":
@@ -211,13 +225,42 @@ def getFrameRotation(videoFile):
         rotation = cv2.ROTATE_180
     elif rotation == 270:
         rotation = cv2.ROTATE_90_COUNTERCLOCKWISE
+    return rotation
 
-def highlightRoi(frame, cascade, rotation, previousFaceBox):
-    if rotation >= 0:
-        frame = cv2.rotate(frame, rotation)
-    previousFaceBox, roi, mask = getBestROI(frame, cascade, previousFaceBox)
+def highlightRoi(frame, previousFaceBox):
+    previousFaceBox, roi, mask = getBestROI(frame, faceCascade, previousFaceBox)
     changed = changeFrame(frame, mask)
     return changed, roi, previousFaceBox
+
+def getHeartRate(window):
+    # Normalize across the window to have zero-mean and unit variance
+    mean = np.mean(window, axis=0)
+    std = np.std(window, axis=0)
+    normalized = (window - mean) / std
+
+    # Separate into three source signals using ICA
+    ica = FastICA()
+    srcSig = ica.fit_transform(normalized)
+
+    # Find power spectrum
+    powerSpec = np.abs(np.fft.fft(srcSig, axis=0))**2
+    freqs = np.fft.fftfreq(WINDOW_SIZE, 1.0 / FPS)
+
+    # Find heart rate
+    # TODO: maxPwrSrc is got from channels of R,G,B, is it right?
+    maxPwrSrc = np.max(powerSpec, axis=1)
+    validIdx = np.where((freqs >= MIN_HR_BPM / SEC_PER_MIN) & (freqs <= MAX_HR_BMP / SEC_PER_MIN))
+    validPwr = maxPwrSrc[validIdx]
+    validFreqs = freqs[validIdx]
+    maxPwrIdx = np.argmax(validPwr)
+    hr = validFreqs[maxPwrIdx]
+    print(hr)
+
+    # plotSignals(normalized, "Normalized color intensity")
+    # plotSignals(srcSig, "Source signal strength")
+    # plotSpectrum(freqs, powerSpec)
+
+    return hr
 
 def calcBpm(roi, colorSigs):
     if (roi is not None) and (np.size(roi) > 0):
@@ -229,14 +272,14 @@ def calcBpm(roi, colorSigs):
         windowStart = len(colorSigs) - WINDOW_SIZE
         window = colorSigs[windowStart: windowStart + WINDOW_SIZE]
         # lastHR = heartRates[-1] if len(heartRates) > 0 else None
-        heartRate = hr.getHeartRate(window)
+        heartRate = getHeartRate(window)
         # print(heartRate)
-        return heartRate
+        return heartRate * 60
     else:
         return 0
 
 class VideoReader(object):
-    def __init__(self, video, consumer):
+    def __init__(self, video, buffersize=MAX_FRAME_BUFF):
         if video is not None:
             # a file
             if not os.path.isfile(video):
@@ -246,15 +289,48 @@ class VideoReader(object):
             self.videoFile = True
         else:
             self.video = cv2.VideoCapture(0)
-        self.consumer = consumer
-        self.faceCascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+        self.bufsize = buffersize
+        self.buffer = eventlet.queue.LightQueue(buffersize)
+        self.stopFlag = False
+        self.thread = None
+        self.started = False
 
-    def readFrame(self):
+    def readFrames(self):
         """return a highlighted frame"""
-        ret, frame = self.video.read()
-        if not ret:
-            return None
-        # consumer.consume(frame)
+        print("reader thread started...")
+        while True:
+            eventlet.sleep(0)
+            if self.stopFlag:
+                break
+
+            ret, frame = self.video.read()
+            if not ret:
+                print("didn't read a frame.", ret)
+            else:
+                try:
+                    # block at most 1 second
+                    if self.rotation >= 0:
+                        frame = cv2.rotate(frame, self.rotation)
+                    self.buffer.put(frame, True, 1)
+                except eventlet.queue.Full:
+                    print("queue is full!")
+                    pass
+
+    def start(self):
+        self.thread = pool.spawn(self.readFrames)
+        print("after spawn")
+        self.started = True
+
+    def stop(self):
+        self.stopFlag = True
+        try:
+            self.thread.cancel()
+        except:
+            pass
+        self.video.release()
+    # def clearBuffer(self):
+    #     # just create a new buffer. in future we should clear the underlying deque with mutex.
+    #     self.buffer = eventlet.queue.LifoQueue(self.bufsize)
 
 def testOutPutFrame():
     framefile = "/home/jinhui/workspaces/heartrate/231A_Project/test1.png"
@@ -264,7 +340,7 @@ def testOutPutFrame():
     changed = changeFrame(frame, mask)
     plotFrame(frame, changed)
 
-testOutPutFrame()
+# testOutPutFrame()
 
 
 

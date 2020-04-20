@@ -4,10 +4,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy import signal
 from sklearn.decomposition import FastICA
+import time
 import warnings
-from GrabCut import grabCut
+# from cam_heartrate.GrabCut import grabCut
 import random
-import imgProcess
+import cam_heartrate.imgProcess as imgProcess
 
 # Toggle these for different ROIs
 REMOVE_EYES = False
@@ -17,7 +18,8 @@ USE_MY_GRABCUT = False
 ADD_BOX_ERROR = False
 
 CASCADE_PATH = "haarcascade_frontalface_default.xml"
-VIDEO_DIR = "/home/jinhui/workspaces/heartrate/231A_Project/video/"
+# VIDEO_DIR = "/home/jinhui/workspaces/heartrate/231A_Project/video/"
+VIDEO_DIR = "/Users/jinhui/workspaces/heartrate/231A_Project/video/"
 # DEFAULT_VIDEO = "android-1.mp4"
 DEFAULT_VIDEO = "qijie2.mp4"
 RESULTS_SAVE_DIR = "/home/jinhui/workspaces/heartrate/231A_Project/results/" + ("segmentation/" if USE_SEGMENTATION else "no_segmentation/")
@@ -52,15 +54,15 @@ EYE_UPPER_FRAC = 0.5
 BOX_ERROR_MAX = 0.5
 
 def segment(image, faceBox):
-    if USE_MY_GRABCUT:
-        foregrndMask, backgrndMask = grabCut(image, faceBox, MY_GRABCUT_ITERATIONS)
-    
-    else:
-        mask = np.zeros(image.shape[:2],np.uint8)
-        bgModel = np.zeros((1,65),np.float64)
-        fgModel = np.zeros((1,65),np.float64)
-        cv2.grabCut(image, mask, faceBox, bgModel, fgModel, GRABCUT_ITERATIONS, cv2.GC_INIT_WITH_RECT)
-        backgrndMask = np.where((mask == cv2.GC_BGD) | (mask == cv2.GC_PR_BGD),True,False).astype('uint8')
+    # if USE_MY_GRABCUT:
+    #     foregrndMask, backgrndMask = grabCut(image, faceBox, MY_GRABCUT_ITERATIONS)
+    #
+    # else:
+    mask = np.zeros(image.shape[:2],np.uint8)
+    bgModel = np.zeros((1,65),np.float64)
+    fgModel = np.zeros((1,65),np.float64)
+    cv2.grabCut(image, mask, faceBox, bgModel, fgModel, GRABCUT_ITERATIONS, cv2.GC_INIT_WITH_RECT)
+    backgrndMask = np.where((mask == cv2.GC_BGD) | (mask == cv2.GC_PR_BGD),True,False).astype('uint8')
     
     backgrndMask = np.broadcast_to(backgrndMask[:,:,np.newaxis], np.shape(image))
     return backgrndMask
@@ -222,7 +224,7 @@ try:
 except:
     videoFile = DEFAULT_VIDEO
 
-rotation = imgProcess.getRotationInfo(VIDEO_DIR + videoFile)
+# rotation = imgProcess.getRotationInfo(VIDEO_DIR + videoFile)
 
 
 video = cv2.VideoCapture(VIDEO_DIR + videoFile)
@@ -233,13 +235,16 @@ faceCascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontal
 colorSig = [] # Will store the average RGB color values in each frame's ROI
 heartRates = [] # Will store the heart rate calculated every 1 second
 previousFaceBox = None
+i=0
+t = time.time()
 while True:
     # Capture frame-by-frame
     ret, frame = video.read()
+    i+=1
     if not ret:
         break
-    if rotation != 0:
-        frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
+    # if rotation != 0:
+    #     frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
     previousFaceBox, roi = getBestROI(frame, faceCascade, previousFaceBox)
 
     if (roi is not None) and (np.size(roi) > 0):
