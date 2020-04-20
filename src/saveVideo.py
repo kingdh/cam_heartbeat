@@ -1,8 +1,8 @@
 #From http://stackoverflow.com/questions/10605163/opencv-videowriter-under-osx-producing-no-output
 
-import numpy as np
-import cv2
-import time
+# import numpy as np
+# import cv2
+# import time
 
 
 import cv2
@@ -21,7 +21,7 @@ out = cv2.VideoWriter(filename, fourcc, FPS, size, True)
 
 
 start = time.time()
-for i in xrange(0, NUM_FRAMES) :
+for i in range(0, NUM_FRAMES) :
 #while(cap.isOpened()):
     ret, frame = cap.read()
     if ret == True:
@@ -32,14 +32,14 @@ for i in xrange(0, NUM_FRAMES) :
         #    break;
 
     else:
-        print 'Error...'
+        print('Error...')
         break;
 
 end = time.time()
 seconds = end - start
-print "Time taken : {0} seconds".format(seconds)
+print("Time taken : {0} seconds".format(seconds))
 fps  = NUM_FRAMES / seconds;
-print "Estimated frames per second : {0}".format(fps);
+print("Estimated frames per second : {0}".format(fps));
 cap.release()
 out.release()
 cv2.destroyAllWindows()

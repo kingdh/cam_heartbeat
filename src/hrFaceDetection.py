@@ -7,6 +7,7 @@ from sklearn.decomposition import FastICA
 import warnings
 from GrabCut import grabCut
 import random
+import imgProcess
 
 # Toggle these for different ROIs
 REMOVE_EYES = False
@@ -16,9 +17,10 @@ USE_MY_GRABCUT = False
 ADD_BOX_ERROR = False
 
 CASCADE_PATH = "haarcascade_frontalface_default.xml"
-VIDEO_DIR = "../video/"
-DEFAULT_VIDEO = "android-1.mp4"
-RESULTS_SAVE_DIR = "../results/" + ("segmentation/" if USE_SEGMENTATION else "no_segmentation/")
+VIDEO_DIR = "/home/jinhui/workspaces/heartrate/231A_Project/video/"
+# DEFAULT_VIDEO = "android-1.mp4"
+DEFAULT_VIDEO = "qijie2.mp4"
+RESULTS_SAVE_DIR = "/home/jinhui/workspaces/heartrate/231A_Project/results/" + ("segmentation/" if USE_SEGMENTATION else "no_segmentation/")
 if REMOVE_EYES:
     RESULTS_SAVE_DIR += "no_eyes/"
 if FOREHEAD_ONLY:
@@ -29,7 +31,9 @@ MIN_FACE_SIZE = 100
 WIDTH_FRACTION = 0.6 # Fraction of bounding box width to include in ROI
 HEIGHT_FRACTION = 1
 
-FPS = 14.99
+# TODO: FPS should be read from ffmpeg command output or somewhere.
+# FPS = 14.99
+FPS = 23.99
 WINDOW_TIME_SEC = 30
 WINDOW_SIZE = int(np.ceil(WINDOW_TIME_SEC * FPS))
 MIN_HR_BPM = 45.0
@@ -99,9 +103,15 @@ def distance(roi1, roi2):
     return sum((roi1[i] - roi2[i])**2 for i in range(len(roi1)))
 
 def getBestROI(frame, faceCascade, previousFaceBox):
+    # cv2.imshow("frame", frame)
+    # cv2.waitKey(0)
+    # cv2.destroyAllWindows()
+
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    faces = faceCascade.detectMultiScale(gray, scaleFactor=1.1, 
-        minNeighbors=5, minSize=(MIN_FACE_SIZE, MIN_FACE_SIZE), flags=cv2.cv.CV_HAAR_SCALE_IMAGE)
+    faces = faceCascade.detectMultiScale(gray, scaleFactor=1.1,
+                                         minNeighbors=5, minSize=(MIN_FACE_SIZE, MIN_FACE_SIZE),
+                                         flags=cv2.CASCADE_SCALE_IMAGE)
+        # minNeighbors=5, minSize=(MIN_FACE_SIZE, MIN_FACE_SIZE), flags=cv2.CV_HAAR_SCALE_IMAGE)
     roi = None
     faceBox = None
 
@@ -157,6 +167,7 @@ def plotSignals(signals, label):
         plt.plot(seconds, signals[:,i], colors[i])
     plt.xlabel('Time (sec)', fontsize=17)
     plt.ylabel(label, fontsize=17)
+    plt.title(label)
     plt.tick_params(axis='x', labelsize=17)
     plt.tick_params(axis='y', labelsize=17)
     plt.show()
@@ -172,9 +183,10 @@ def plotSpectrum(freqs, powerSpec):
     plt.tick_params(axis='x', labelsize=17)
     plt.tick_params(axis='y', labelsize=17)
     plt.xlim([0.75, 4])
+    plt.title("spectrum")
     plt.show()
 
-def getHeartRate(window, lastHR):
+def getHeartRate(window):
     # Normalize across the window to have zero-mean and unit variance
     mean = np.mean(window, axis=0)
     std = np.std(window, axis=0)
@@ -189,17 +201,18 @@ def getHeartRate(window, lastHR):
     freqs = np.fft.fftfreq(WINDOW_SIZE, 1.0 / FPS)
 
     # Find heart rate
+    # TODO: maxPwrSrc is got from channels of R,G,B, is it right?
     maxPwrSrc = np.max(powerSpec, axis=1)
     validIdx = np.where((freqs >= MIN_HR_BPM / SEC_PER_MIN) & (freqs <= MAX_HR_BMP / SEC_PER_MIN))
     validPwr = maxPwrSrc[validIdx]
     validFreqs = freqs[validIdx]
     maxPwrIdx = np.argmax(validPwr)
     hr = validFreqs[maxPwrIdx]
-    print hr
+    print(hr)
 
-    #plotSignals(normalized, "Normalized color intensity")
-    #plotSignals(srcSig, "Source signal strength")
-    #plotSpectrum(freqs, powerSpec)
+    # plotSignals(normalized, "Normalized color intensity")
+    # plotSignals(srcSig, "Source signal strength")
+    # plotSpectrum(freqs, powerSpec)
 
     return hr
 
@@ -207,9 +220,15 @@ def getHeartRate(window, lastHR):
 try:
     videoFile = sys.argv[1]
 except:
-    videoFile = DEFAULT_VIDEO  
+    videoFile = DEFAULT_VIDEO
+
+rotation = imgProcess.getRotationInfo(VIDEO_DIR + videoFile)
+
+
 video = cv2.VideoCapture(VIDEO_DIR + videoFile)
-faceCascade = cv2.CascadeClassifier(CASCADE_PATH)
+# faceCascade = cv2.CascadeClassifier(CASCADE_PATH)
+faceCascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+
 
 colorSig = [] # Will store the average RGB color values in each frame's ROI
 heartRates = [] # Will store the heart rate calculated every 1 second
@@ -219,7 +238,8 @@ while True:
     ret, frame = video.read()
     if not ret:
         break
-
+    if rotation != 0:
+        frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
     previousFaceBox, roi = getBestROI(frame, faceCascade, previousFaceBox)
 
     if (roi is not None) and (np.size(roi) > 0):
@@ -228,22 +248,30 @@ while True:
         colorSig.append(avgColor)
 
     # Calculate heart rate every one second (once have 30-second of data)
+    print("colorsig.len=",len(colorSig))
     if (len(colorSig) >= WINDOW_SIZE) and (len(colorSig) % np.ceil(FPS) == 0):
         windowStart = len(colorSig) - WINDOW_SIZE
         window = colorSig[windowStart : windowStart + WINDOW_SIZE]
         lastHR = heartRates[-1] if len(heartRates) > 0 else None
-        heartRates.append(getHeartRate(window, lastHR))
+        heartRates.append(getHeartRate(window, lastHR))  # calculate heart rate here
+        print("heart rate=", heartRates[-1]*60)
 
     if np.ma.is_masked(roi):
         roi = np.where(roi.mask == True, 0, roi)
     cv2.imshow('ROI', roi)
     cv2.waitKey(1)
 
-print heartRates
-print videoFile
+print(heartRates)
+hr = np.asarray(heartRates)
+bpm=hr*60
+
+print("bpm=",bpm)
+print("bpm mean=%f, bpm std=%f"%(np.mean(bpm), np.std(bpm)))
+
+print(videoFile)
 filename = RESULTS_SAVE_DIR + videoFile[0:-4]
 if ADD_BOX_ERROR:
     filename += "_" + str(BOX_ERROR_MAX)
-np.save(filename, heartRates)
+# np.save(filename, heartRates)
 video.release()
 cv2.destroyAllWindows()
