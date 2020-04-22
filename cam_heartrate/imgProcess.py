@@ -291,21 +291,25 @@ class VideoReader(object):
             self.video = cv2.VideoCapture(0)
         self.bufsize = buffersize
         self.buffer = eventlet.queue.LightQueue(buffersize)
+        self.bufferUsed = False
         self.stopFlag = False
         self.thread = None
         self.started = False
+        self.clear()
 
     def readFrames(self):
         """return a highlighted frame"""
         print("reader thread started...")
+        i=1
         while True:
             eventlet.sleep(0)
             if self.stopFlag:
                 break
-
+            i+=1
             ret, frame = self.video.read()
             if not ret:
-                print("didn't read a frame.", ret)
+                print("didn't read a frame, reach the end of frame, size=", self.buffer.qsize())
+                break
             else:
                 try:
                     # block at most 1 second
@@ -315,10 +319,19 @@ class VideoReader(object):
                 except eventlet.queue.Full:
                     print("queue is full!")
                     pass
+        self.bufferUsed = True
+
+    def clear(self):
+        if self.bufferUsed:
+            self.buffer = eventlet.queue.LightQueue(self.bufsize)
+            self.stopFlag = False
+            self.thread = None
+            self.started = False
+            self.bufferUsed = False
 
     def start(self):
+        self.clear()
         self.thread = pool.spawn(self.readFrames)
-        print("after spawn")
         self.started = True
 
     def stop(self):

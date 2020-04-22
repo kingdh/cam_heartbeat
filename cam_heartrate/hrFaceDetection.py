@@ -18,8 +18,8 @@ USE_MY_GRABCUT = False
 ADD_BOX_ERROR = False
 
 CASCADE_PATH = "haarcascade_frontalface_default.xml"
-# VIDEO_DIR = "/home/jinhui/workspaces/heartrate/231A_Project/video/"
-VIDEO_DIR = "/Users/jinhui/workspaces/heartrate/231A_Project/video/"
+VIDEO_DIR = "/home/jinhui/workspaces/heartrate/231A_Project/video/"
+# VIDEO_DIR = "/Users/jinhui/workspaces/heartrate/231A_Project/video/"
 # DEFAULT_VIDEO = "android-1.mp4"
 DEFAULT_VIDEO = "qijie2.mp4"
 RESULTS_SAVE_DIR = "/home/jinhui/workspaces/heartrate/231A_Project/results/" + ("segmentation/" if USE_SEGMENTATION else "no_segmentation/")
@@ -261,6 +261,10 @@ while True:
         heartRates.append(getHeartRate(window, lastHR))  # calculate heart rate here
         print("heart rate=", heartRates[-1]*60)
 
+    if i%24 == 0:
+        t1 = time.time()
+        print("24 frames use time=", t1-t)
+        t = t1
     if np.ma.is_masked(roi):
         roi = np.where(roi.mask == True, 0, roi)
     cv2.imshow('ROI', roi)
