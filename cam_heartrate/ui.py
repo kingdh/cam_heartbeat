@@ -73,22 +73,24 @@ class MainWindow(Player):
         self.colorSig = []
         self.heartRates = []
 
-    def close(self):
+    def close(self, event):
+        print("main window close is called...")
         self.postExit()
         try:
             self.exitFlag = True
+            print("44444444", self.exitFlag, id(self.exitFlag))
         except Exception as e:
             print(e)
 
     def exit(self):
         print("main window exit is called..")
         # plt.ion()
-        self.exitFlag = True
-        print("44444444", self.exitFlag, id(self.exitFlag))
+        # self.exitFlag = True
+        plt.close(self.fig)
         import time
         # eventlet.sleep(10)
         # self.thread.wait()
-        self.postExit()
+        # self.postExit()
         # plt.close(self.fig)  # will cause the exit be called again
 
     def postExit(self):
