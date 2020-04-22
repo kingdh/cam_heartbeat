@@ -2,6 +2,8 @@ from matplotlib.widgets import Button
 import matplotlib.pyplot as plt
 import cam_heartrate.imgProcess as imgProcess
 import eventlet
+import time
+import cv2
 
 
 class Player(object):
@@ -43,7 +45,7 @@ class MainWindow(Player):
         self.max_hr_num = 10000
         self.reader = imgProcess.VideoReader(video)
         self.fig = plt.figure(figsize=(7,8))
-        self.fig.canvas.mpl_connect('close_event', self.close)
+        self.fig.canvas.mpl_connect('close_event', self.closed)
 
         # plt.title("heart rate detection")
         plt.ion()
@@ -57,6 +59,7 @@ class MainWindow(Player):
         self.exitbtn = Button(ax_exit, 'exit')
         self.exitbtn.on_clicked(self.buttonHandler.exit)
         self.ax1 = plt.axes((0.05, 0.25, 0.4, 0.7))
+        self.ax1.set_axis_off()
         self.ax1.set_xlabel("video")
         self.ax2 = plt.axes((0.55, 0.25, 0.4, 0.7))
         self.ax2.set_xlabel('Time (sec)')
@@ -73,7 +76,7 @@ class MainWindow(Player):
         self.colorSig = []
         self.heartRates = []
 
-    def close(self, event):
+    def closed(self, event):
         print("main window close is called...")
         self.postExit()
         try:
@@ -84,14 +87,7 @@ class MainWindow(Player):
 
     def exit(self):
         print("main window exit is called..")
-        # plt.ion()
-        # self.exitFlag = True
-        plt.close(self.fig)
-        import time
-        # eventlet.sleep(10)
-        # self.thread.wait()
-        # self.postExit()
-        # plt.close(self.fig)  # will cause the exit be called again
+        plt.close(self.fig)  # will cause self.closed() is called
 
     def postExit(self):
         self.clean()
@@ -100,17 +96,14 @@ class MainWindow(Player):
     def show(self):
         previousFaceBox = None
         i=0
+        t=time.time()
         while True:
             i+=1
-            if i % 15 == 0:
-                print("buffer size = ", self.reader.buffer.qsize())
-
             eventlet.sleep(0)
             if self.pauseFlag:
                 self.clean()
                 print("pause is received, i=",i)
                 break
-            print("11111111111", self.exitFlag, id(self.exitFlag))
             if self.exitFlag:
                 print("exit is received, break the loop")
                 break
@@ -118,14 +111,21 @@ class MainWindow(Player):
             # Capture frame-by-frame
             try:
                 frame = self.reader.buffer.get(block=True, timeout=0.5)
-                # frame = self.reader.buffer.get_nowait()
             except Exception as e:
                 print("no frame is got from buffer ", e)
                 continue
+
             highlighted, roi, previousFaceBox = imgProcess.highlightRoi(frame, previousFaceBox)
             # Calculate heart rate every one second (once have 30-second of data)
             self.heartRates.append(imgProcess.calcBpm(roi, self.colorSig))  # calculate heart rate here
-            self.ax1.imshow(highlighted)
+            # matplotlib is not suitable for realtime plotting or video. consider PyQtGraph for an alternation.
+            # self.ax1.imshow(highlighted)
+
+            cv2.imshow("video", highlighted)
+            if i%24 == 0 :
+                t1 = time.time()
+                print("24 frames used:",i, t1-t)
+                t = t1
             # plt.show()
             plt.pause(0.01)
         # plt.off()
@@ -152,13 +152,10 @@ class MainWindow(Player):
     def wait(self):
         while True:
             imgProcess.pool.waitall()
-            print("wait loop...............", self.exitFlag, id(self.exitFlag))
             if not self.exitFlag:
-                print("loop2", self.exitFlag)
                 plt.pause(1)
                 self.running = False
                 self.pauseFlag = False
-                # plt.show()
             else:
                 print("both threads exit...")
                 break
