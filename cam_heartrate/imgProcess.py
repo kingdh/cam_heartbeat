@@ -178,8 +178,9 @@ def changeFrame(roi):
     :param roi:  is a masked array whose shape is same with frame.
     :return: a modified frame.
     """
-    np.floor_divide(roi, 2, out=roi, where=roi.mask)
-    b, g, r = cv2.split(roi)
+    changed = np.copy(roi.data)
+    np.floor_divide(changed, 2, out=changed, where=roi.mask)
+    b, g, r = cv2.split(changed)
     changed = cv2.merge([r,g,b])
     return changed
 
@@ -256,7 +257,6 @@ def getHeartRate(window, fps, windowSize):
 
     # Find power spectrum
     powerSpec = np.abs(np.fft.fft(srcSig, axis=0))**2
-    print("fps=", fps)
 
     freqs = np.fft.fftfreq(windowSize, 1.0 / fps)
 
