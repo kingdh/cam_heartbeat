@@ -7,21 +7,6 @@ import time
 import numpy as np
 from collections import deque
 
-
-# class ButtonHandler(object):
-#     def __init__(self, player):
-#         self.player = player
-#         # self.range_s, self.range_e, self.range_step = 0, 1, 0.005
-#
-#     def pause(self, event):
-#         self.player.pause()
-#
-#     def start(self, event):
-#         self.player.start()
-#
-#     def exit(self, event):
-#         self.player.exit()
-
 class Player(FuncAnimation):
     def __init__(self, fig, func,  frames=None, init_func=None, fargs=None,
                   **kwargs):
@@ -46,13 +31,13 @@ class MainWindow(object):
         super().__init__()
         self.exitFlag = False
         self.pauseFlag = False
-        # self.colorSig = []  # Will store the average RGB color values in each frame's ROI
-        self.colorSig = deque([], imgProcess.WINDOW_SIZE)
         self.heartRates = deque([], MAX_X_LIM)  # Will store the heart rate calculated every 1 second
         self.timeline = deque([], MAX_X_LIM)
         # TODO: maximum heart rate data number. if that number is reached, we should do something. Now we do nothing
         self.max_hr_num = 10000
         self.reader = imgProcess.VideoReader(video)
+        self.windowSize = int(np.ceil(imgProcess.WINDOW_TIME_SEC * np.ceil(self.reader.fps)))
+        self.colorSig = deque([], self.windowSize)
         self.fig = plt.figure(figsize=(12,8))
         self.fig.canvas.mpl_connect('close_event', self.closed)
         self.player = Player(self.fig, self.show, frames=self.getFrames, interval=70)  # Animation
@@ -110,7 +95,7 @@ class MainWindow(object):
         self.reader.stop()
 
     def show(self, frame):
-        if self.img is not None:
+        if self.img is not None and frame is not None:
             self.img.set_array(frame)
             x = np.fromiter(self.timeline, float)
             y = np.fromiter(self.heartRates, float)
@@ -138,24 +123,23 @@ class MainWindow(object):
 
             # Capture frame-by-frame
             try:
-                frame = self.reader.buffer.get(block=True, timeout=0.5)
+                frame = self.reader.buffer.get(block=True, timeout=1)
             except Exception as e:
-                print("no frame is got from buffer ", e)
-                continue
+                # print("no frame is got from buffer ", e)
+                yield None
             now = time.time()
             highlighted, roi, self.previousFaceBox = imgProcess.highlightRoi(frame, self.previousFaceBox)
             # Calculate heart rate every one second (once have 30-second of data)
-            bpm = imgProcess.calcBpm(roi, self.colorSig, self.counter)
+            bpm = imgProcess.calcBpm(roi, self.colorSig, self.counter, self.reader.fps, self.windowSize)
             self.counter += 1
             if bpm is not None:
                 self.heartRates.append(bpm)  # calculate heart rate here
                 self.timeline.append(now - self.start_time)
-                print("len(timeline)=", len(self.timeline))
-            if self.counter == np.ceil(imgProcess.FPS):
+            if self.counter == np.ceil(self.reader.fps):
                 self.counter = 0
-                t1 = time.time()
-                print("24 frames used:", t1-t)
-                t = t1
+                # t1 = time.time()
+                # print("24 frames used:", t1-t)
+                # t = t1
             yield highlighted
             # matplotlib is not suitable for realtime plotting or video. consider PyQtGraph for an alternation.
             # self.ax1.imshow(highlighted)
@@ -188,7 +172,7 @@ class MainWindow(object):
             self.reader.start()
         frame = self.reader.buffer.get(block=True, timeout=0.5)
         highlighted, roi, self.previousFaceBox = imgProcess.highlightRoi(frame, self.previousFaceBox)
-        self.heartRates.append(imgProcess.calcBpm(roi, self.colorSig, self.counter))  # calculate heart rate here
+        self.heartRates.append(imgProcess.calcBpm(roi, self.colorSig, self.counter, self.reader.fps, self.windowSize))  # calculate heart rate here
         self.counter += 1
         self.timeline.append(0)
         self.img = self.ax1.imshow(highlighted)
@@ -212,11 +196,12 @@ class MainWindow(object):
 
 # TODO:
 #  1. realtime heartbeat measurement.
-#  2. get FPS according to the video.
+#  2. get FPS according to the video. :done
 #  3. add timestamp with the read frame, so we can calculate the frame rate.
 
 
 # window = MainWindow("/Users/jinhui/workspaces/heartrate/231A_Project/video/qijie.mp4")
-window = MainWindow("/home/jinhui/workspaces/heartrate/231A_Project/video/qijie2.mp4")
+# window = MainWindow("/home/jinhui/workspaces/heartrate/231A_Project/video/qijie2.mp4")
+window = MainWindow("/home/jinhui/workspaces/heartrate/231A_Project/video/android-1.mp4")
 window.start()
 # window.wait()

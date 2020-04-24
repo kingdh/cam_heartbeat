@@ -23,9 +23,9 @@ HEIGHT_FRACTION = 0.8
 
 # TODO: FPS should be read from ffmpeg command output or somewhere.
 # FPS = 14.99
-FPS = 23.99
-WINDOW_TIME_SEC = 5
-WINDOW_SIZE = int(np.ceil(WINDOW_TIME_SEC * np.ceil(FPS)))
+DEFAULT_FPS = 23.99
+WINDOW_TIME_SEC = 10
+
 MIN_HR_BPM = 45.0
 MAX_HR_BMP = 240.0
 MAX_HR_CHANGE = 12.0
@@ -244,7 +244,7 @@ def highlightRoi(frame, previousFaceBox):
     changed = changeFrame(roi)
     return changed, roi, previousFaceBox
 
-def getHeartRate(window):
+def getHeartRate(window, fps, windowSize):
     # Normalize across the window to have zero-mean and unit variance
     mean = np.mean(window, axis=0)
     std = np.std(window, axis=0)
@@ -256,7 +256,9 @@ def getHeartRate(window):
 
     # Find power spectrum
     powerSpec = np.abs(np.fft.fft(srcSig, axis=0))**2
-    freqs = np.fft.fftfreq(WINDOW_SIZE, 1.0 / FPS)
+    print("fps=", fps)
+
+    freqs = np.fft.fftfreq(windowSize, 1.0 / fps)
 
     # Find heart rate
     # TODO: maxPwrSrc is got from channels of R,G,B, is it right?
@@ -274,38 +276,46 @@ def getHeartRate(window):
 
     return hr
 
-def calcBpm(roi, colorSigs, counter):
+def calcBpm(roi, colorSigs, counter, fps, windowSize):
     if (roi is not None) and (np.size(roi) > 0):
         colorChannels = roi.reshape(-1, roi.shape[-1])
         avgColor = colorChannels.mean(axis=0)
         colorSigs.append(avgColor)
     # print("len(colorSigs)=", len(colorSigs))
     if counter == 0:
-        if len(colorSigs) < WINDOW_SIZE:
+        if len(colorSigs) < windowSize:
             return 0
         else:
-            heartRate = getHeartRate(colorSigs)
+            heartRate = getHeartRate(colorSigs, fps, windowSize)
             return heartRate * 60
     else:
         return None
 
 class VideoReader(object):
     def __init__(self, video, buffersize=MAX_FRAME_BUFF):
+        self.fps = DEFAULT_FPS
         if video is not None:
             # a file
             if not os.path.isfile(video):
                 raise FileNotFoundError("%s is not found" % video)
             self.rotation = getFrameRotation(video)
             self.video = cv2.VideoCapture(video)
+
             self.videoFile = True
         else:
             self.video = cv2.VideoCapture(0)
+        try:
+            self.fps = self.video.get(cv2.CAP_PROP_FPS)
+            print("xxxxxxxxxxxxxx", self.fps)
+        except Exception as e:
+            print("can't get proper fps, and this will impact the heart rate calculation.", e)
         self.bufsize = buffersize
         self.buffer = eventlet.queue.LightQueue(buffersize)
         self.bufferUsed = False
         self.stopFlag = False
         self.thread = None
         self.started = False
+
         self.clear()
 
     def readFrames(self):
@@ -366,7 +376,13 @@ def testOutPutFrame():
 
 # testOutPutFrame()
 
+def testGetFps():
+    video = cv2.VideoCapture("/home/jinhui/workspaces/heartrate/231A_Project/video/android-1.mp4")
+    # video = cv2.VideoCapture("/home/jinhui/workspaces/heartrate/231A_Project/video/qijie2.mp4")
+    fps = video.get(cv2.CAP_PROP_FPS)
+    print("fps=", fps)
 
+# testGetFps()
 
 
 

@@ -20,8 +20,8 @@ ADD_BOX_ERROR = False
 CASCADE_PATH = "haarcascade_frontalface_default.xml"
 VIDEO_DIR = "/home/jinhui/workspaces/heartrate/231A_Project/video/"
 # VIDEO_DIR = "/Users/jinhui/workspaces/heartrate/231A_Project/video/"
-# DEFAULT_VIDEO = "android-1.mp4"
-DEFAULT_VIDEO = "qijie2.mp4"
+DEFAULT_VIDEO = "android-1.mp4"
+# DEFAULT_VIDEO = "qijie2.mp4"
 RESULTS_SAVE_DIR = "/home/jinhui/workspaces/heartrate/231A_Project/results/" + ("segmentation/" if USE_SEGMENTATION else "no_segmentation/")
 if REMOVE_EYES:
     RESULTS_SAVE_DIR += "no_eyes/"
@@ -34,8 +34,8 @@ WIDTH_FRACTION = 0.5 # Fraction of bounding box width to include in ROI
 HEIGHT_FRACTION = 0.8
 
 # TODO: FPS should be read from ffmpeg command output or somewhere.
-# FPS = 14.99
-FPS = 23.99
+FPS = 14.99
+# FPS = 23.99
 WINDOW_TIME_SEC = 10
 WINDOW_SIZE = int(np.ceil(WINDOW_TIME_SEC * FPS))
 MIN_HR_BPM = 45.0
@@ -49,7 +49,7 @@ GRABCUT_ITERATIONS = 5
 MY_GRABCUT_ITERATIONS = 2
 
 EYE_LOWER_FRAC = 0.22
-EYE_UPPER_FRAC = 0.5
+EYE_UPPER_FRAC = 0.45
 
 BOX_ERROR_MAX = 0.5
 
@@ -224,7 +224,7 @@ try:
 except:
     videoFile = DEFAULT_VIDEO
 
-# rotation = imgProcess.getRotationInfo(VIDEO_DIR + videoFile)
+rotation = imgProcess.getFrameRotation(VIDEO_DIR + videoFile)
 
 
 video = cv2.VideoCapture(VIDEO_DIR + videoFile)
@@ -243,8 +243,8 @@ while True:
     i+=1
     if not ret:
         break
-    # if rotation != 0:
-    #     frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
+    if rotation > 0:
+        frame = cv2.rotate(frame, rotation)
     previousFaceBox, roi = getBestROI(frame, faceCascade, previousFaceBox)
 
     if (roi is not None) and (np.size(roi) > 0):
