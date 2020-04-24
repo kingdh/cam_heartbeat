@@ -1,5 +1,6 @@
 # Measuring Heart Rate from Video
-### Final project for CS231A Computer Vision course
+### 在https://github.com/ibush/231A_Project.git基础上修改而来。增加了简单的UI
 
-The main algorithm implementation is in src/hrFaceDetection.py, with my implemenation of GrabCut in src/GrabCut.py.
+
+
 

@@ -10,7 +10,7 @@ import re
 from sklearn.decomposition import FastICA
 
 # Toggle these for different ROIs
-REMOVE_EYES = False
+REMOVE_EYES = True
 FOREHEAD_ONLY = False
 USE_SEGMENTATION = False
 USE_MY_GRABCUT = False
@@ -18,14 +18,14 @@ ADD_BOX_ERROR = False
 
 MIN_FACE_SIZE = 100
 
-WIDTH_FRACTION = 0.6 # Fraction of bounding box width to include in ROI
-HEIGHT_FRACTION = 1
+WIDTH_FRACTION = 0.5 # Fraction of bounding box width to include in ROI
+HEIGHT_FRACTION = 0.8
 
 # TODO: FPS should be read from ffmpeg command output or somewhere.
 # FPS = 14.99
 FPS = 23.99
-WINDOW_TIME_SEC = 30
-WINDOW_SIZE = int(np.ceil(WINDOW_TIME_SEC * FPS))
+WINDOW_TIME_SEC = 5
+WINDOW_SIZE = int(np.ceil(WINDOW_TIME_SEC * np.ceil(FPS)))
 MIN_HR_BPM = 45.0
 MAX_HR_BMP = 240.0
 MAX_HR_CHANGE = 12.0
@@ -36,8 +36,8 @@ SEGMENTATION_WIDTH_FRACTION = 0.8
 GRABCUT_ITERATIONS = 5
 MY_GRABCUT_ITERATIONS = 2
 
-EYE_LOWER_FRAC = 0.25
-EYE_UPPER_FRAC = 0.5
+EYE_LOWER_FRAC = 0.22
+EYE_UPPER_FRAC = 0.45
 
 BOX_ERROR_MAX = 0.5
 MAX_FRAME_BUFF = 40000
@@ -85,7 +85,7 @@ def getROI(image, faceBox):
 
     (x, y, w, h) = faceBox
     if REMOVE_EYES:
-        backgrndMask[y + h * EYE_LOWER_FRAC: y + h * EYE_UPPER_FRAC, :] = True
+        backgrndMask[y + np.ceil(h * EYE_LOWER_FRAC).astype(int): y + np.ceil(h * EYE_UPPER_FRAC).astype(int), :] = True
     if FOREHEAD_ONLY:
         backgrndMask[y + h * EYE_LOWER_FRAC:, :] = True
 
@@ -152,7 +152,7 @@ def getBestROI(frame, faceCascade, previousFaceBox):
 
     return faceBox, roi, mask
 
-def changeFrame(frame, masked):
+def changeFrame_old(frame, masked):
     """
 
     :param frame: origin frame
@@ -168,6 +168,18 @@ def changeFrame(frame, masked):
     partialDimming = selected.data
     newBGR = cv2.cvtColor(partialDimming, cv2.COLOR_HLS2BGR)
     b, g, r = cv2.split(newBGR)
+    changed = cv2.merge([r,g,b])
+    return changed
+
+def changeFrame(roi):
+    """
+
+    :param roi: origin frame
+    :param roi:  is a masked array whose shape is same with frame.
+    :return: a modified frame.
+    """
+    np.floor_divide(roi, 2, out=roi, where=roi.mask)
+    b, g, r = cv2.split(roi)
     changed = cv2.merge([r,g,b])
     return changed
 
@@ -229,7 +241,7 @@ def getFrameRotation(videoFile):
 
 def highlightRoi(frame, previousFaceBox):
     previousFaceBox, roi, mask = getBestROI(frame, faceCascade, previousFaceBox)
-    changed = changeFrame(frame, mask)
+    changed = changeFrame(roi)
     return changed, roi, previousFaceBox
 
 def getHeartRate(window):
@@ -254,7 +266,7 @@ def getHeartRate(window):
     validFreqs = freqs[validIdx]
     maxPwrIdx = np.argmax(validPwr)
     hr = validFreqs[maxPwrIdx]
-    print(hr)
+    # print(hr)
 
     # plotSignals(normalized, "Normalized color intensity")
     # plotSignals(srcSig, "Source signal strength")
@@ -262,21 +274,20 @@ def getHeartRate(window):
 
     return hr
 
-def calcBpm(roi, colorSigs):
+def calcBpm(roi, colorSigs, counter):
     if (roi is not None) and (np.size(roi) > 0):
         colorChannels = roi.reshape(-1, roi.shape[-1])
         avgColor = colorChannels.mean(axis=0)
         colorSigs.append(avgColor)
-
-    if (len(colorSigs) >= WINDOW_SIZE) and (len(colorSigs) % np.ceil(FPS) == 0):
-        windowStart = len(colorSigs) - WINDOW_SIZE
-        window = colorSigs[windowStart: windowStart + WINDOW_SIZE]
-        # lastHR = heartRates[-1] if len(heartRates) > 0 else None
-        heartRate = getHeartRate(window)
-        # print(heartRate)
-        return heartRate * 60
+    # print("len(colorSigs)=", len(colorSigs))
+    if counter == 0:
+        if len(colorSigs) < WINDOW_SIZE:
+            return 0
+        else:
+            heartRate = getHeartRate(colorSigs)
+            return heartRate * 60
     else:
-        return 0
+        return None
 
 class VideoReader(object):
     def __init__(self, video, buffersize=MAX_FRAME_BUFF):
@@ -308,7 +319,7 @@ class VideoReader(object):
             i+=1
             ret, frame = self.video.read()
             if not ret:
-                print("didn't read a frame, reach the end of frame, size=", self.buffer.qsize())
+                print("didn't read a frame, reach the end of stream, size=", self.buffer.qsize())
                 break
             else:
                 try:

@@ -11,7 +11,7 @@ import random
 import cam_heartrate.imgProcess as imgProcess
 
 # Toggle these for different ROIs
-REMOVE_EYES = False
+REMOVE_EYES = True
 FOREHEAD_ONLY = False
 USE_SEGMENTATION = False
 USE_MY_GRABCUT = False
@@ -30,13 +30,13 @@ if FOREHEAD_ONLY:
 
 MIN_FACE_SIZE = 100
 
-WIDTH_FRACTION = 0.6 # Fraction of bounding box width to include in ROI
-HEIGHT_FRACTION = 1
+WIDTH_FRACTION = 0.5 # Fraction of bounding box width to include in ROI
+HEIGHT_FRACTION = 0.8
 
 # TODO: FPS should be read from ffmpeg command output or somewhere.
 # FPS = 14.99
 FPS = 23.99
-WINDOW_TIME_SEC = 30
+WINDOW_TIME_SEC = 10
 WINDOW_SIZE = int(np.ceil(WINDOW_TIME_SEC * FPS))
 MIN_HR_BPM = 45.0
 MAX_HR_BMP = 240.0
@@ -48,7 +48,7 @@ SEGMENTATION_WIDTH_FRACTION = 0.8
 GRABCUT_ITERATIONS = 5
 MY_GRABCUT_ITERATIONS = 2
 
-EYE_LOWER_FRAC = 0.25
+EYE_LOWER_FRAC = 0.22
 EYE_UPPER_FRAC = 0.5
 
 BOX_ERROR_MAX = 0.5
@@ -93,7 +93,7 @@ def getROI(image, faceBox):
     
     (x, y, w, h) = faceBox
     if REMOVE_EYES:
-        backgrndMask[y + h * EYE_LOWER_FRAC : y + h * EYE_UPPER_FRAC, :] = True
+        backgrndMask[y + np.ceil(h * EYE_LOWER_FRAC).astype(int) : y + np.ceil(h * EYE_UPPER_FRAC).astype(int), :] = True
     if FOREHEAD_ONLY:
         backgrndMask[y + h * EYE_LOWER_FRAC :, :] = True
 
@@ -258,7 +258,7 @@ while True:
         windowStart = len(colorSig) - WINDOW_SIZE
         window = colorSig[windowStart : windowStart + WINDOW_SIZE]
         lastHR = heartRates[-1] if len(heartRates) > 0 else None
-        heartRates.append(getHeartRate(window, lastHR))  # calculate heart rate here
+        heartRates.append(getHeartRate(window))  # calculate heart rate here
         print("heart rate=", heartRates[-1]*60)
 
     if i%24 == 0:
