@@ -24,7 +24,7 @@ HEIGHT_FRACTION = 0.8
 # TODO: FPS should be read from ffmpeg command output or somewhere.
 # FPS = 14.99
 DEFAULT_FPS = 23.99
-WINDOW_TIME_SEC = 10
+WINDOW_TIME_SEC = 5
 
 MIN_HR_BPM = 45.0
 MAX_HR_BMP = 240.0
@@ -96,10 +96,9 @@ def getROI(image, faceBox):
 def distance(roi1, roi2):
     return sum((roi1[i] - roi2[i])**2 for i in range(len(roi1)))
 
+
 def getBestROI(frame, faceCascade, previousFaceBox):
-    # cv2.imshow("frame", frame)
-    # cv2.waitKey(0)
-    # cv2.destroyAllWindows()
+    global tmpcount
 
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     faces = faceCascade.detectMultiScale(gray, scaleFactor=1.1,
@@ -147,10 +146,11 @@ def getBestROI(frame, faceCascade, previousFaceBox):
         # Show rectangle
         #(x, y, w, h) = faceBox
         #cv2.rectangle(frame, (x, y), (x+w, y+h), (255, 255, 255), 2)
+        # exit(0)
+        roi, mask1 = getROI(frame, faceBox)
+        return faceBox, roi, mask1
 
-        roi, mask = getROI(frame, faceBox)
-
-    return faceBox, roi, mask
+    return None, None, None
 
 def changeFrame_old(frame, masked):
     """
@@ -242,6 +242,8 @@ def getFrameRotation(videoFile):
 
 def highlightRoi(frame, previousFaceBox):
     previousFaceBox, roi, mask = getBestROI(frame, faceCascade, previousFaceBox)
+    if roi is None:
+        return frame, None, previousFaceBox
     changed = changeFrame(roi)
     return changed, roi, previousFaceBox
 
@@ -268,7 +270,7 @@ def getHeartRate(window, fps, windowSize):
     validFreqs = freqs[validIdx]
     maxPwrIdx = np.argmax(validPwr)
     hr = validFreqs[maxPwrIdx]
-    # print(hr)
+    print("hr=", hr*60)
 
     # plotSignals(normalized, "Normalized color intensity")
     # plotSignals(srcSig, "Source signal strength")
@@ -292,13 +294,16 @@ def calcBpm(roi, colorSigs, counter, fps, windowSize):
         return None
 
 class VideoReader(object):
-    def __init__(self, video, buffersize=MAX_FRAME_BUFF):
+    def __init__(self, video, buffersize=MAX_FRAME_BUFF, rotation=-1):
+        """rotation: -1 means getting ratation automatically """
         self.fps = DEFAULT_FPS
+        self.rotation = rotation
         if video is not None:
             # a file
             if not os.path.isfile(video):
                 raise FileNotFoundError("%s is not found" % video)
-            self.rotation = getFrameRotation(video)
+            if rotation < 0:
+                self.rotation = getFrameRotation(video)
             self.video = cv2.VideoCapture(video)
 
             self.videoFile = True
@@ -306,7 +311,7 @@ class VideoReader(object):
             self.video = cv2.VideoCapture(0)
         try:
             self.fps = self.video.get(cv2.CAP_PROP_FPS)
-            print("xxxxxxxxxxxxxx", self.fps)
+            print("xxxxxxxxxxxxxx FPS=", self.fps)
         except Exception as e:
             print("can't get proper fps, and this will impact the heart rate calculation.", e)
         self.bufsize = buffersize
@@ -367,11 +372,11 @@ class VideoReader(object):
     #     self.buffer = eventlet.queue.LifoQueue(self.bufsize)
 
 def testOutPutFrame():
-    framefile = "/home/jinhui/workspaces/heartrate/231A_Project/test1.png"
+    framefile = "/Users/jinhui/workspaces/heartrate/231A_Project/test1.png"
     frame = cv2.imread(framefile)
     faceCascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
     box, roi, mask = getBestROI(frame, faceCascade, None)
-    changed = changeFrame(frame, mask)
+    changed = changeFrame(roi)
     plotFrame(frame, changed)
 
 # testOutPutFrame()
@@ -386,3 +391,4 @@ def testGetFps():
 
 
 
+# testOutPutFrame()

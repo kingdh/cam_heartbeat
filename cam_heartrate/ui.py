@@ -6,6 +6,7 @@ import eventlet
 import time
 import numpy as np
 from collections import deque
+import cv2
 
 class Player(FuncAnimation):
     def __init__(self, fig, func,  frames=None, init_func=None, fargs=None,
@@ -25,9 +26,16 @@ class Player(FuncAnimation):
 
 MAX_X_LIM = 60
 
+def statistic(data):
+    while True:
+        tmp = data.popleft()
+        if tmp != 0:
+            data.append(tmp)
+            break
+    return np.mean(data), np.std(data)
 
 class MainWindow(object):
-    def __init__(self, video):
+    def __init__(self, video=None):
         super().__init__()
         self.exitFlag = False
         self.pauseFlag = False
@@ -35,10 +43,14 @@ class MainWindow(object):
         self.timeline = deque([], MAX_X_LIM)
         # TODO: maximum heart rate data number. if that number is reached, we should do something. Now we do nothing
         self.max_hr_num = 10000
+
+        # self.reader = imgProcess.VideoReader(video, rotation=cv2.ROTATE_90_COUNTERCLOCKWISE)
         self.reader = imgProcess.VideoReader(video)
+
         self.windowSize = int(np.ceil(imgProcess.WINDOW_TIME_SEC * np.ceil(self.reader.fps)))
         self.colorSig = deque([], self.windowSize)
-        self.fig = plt.figure(figsize=(12,8))
+        # self.fig = plt.figure(figsize=(12,8))
+        self.fig = plt.figure(figsize=(8, 7))
         self.fig.canvas.mpl_connect('close_event', self.closed)
         self.player = Player(self.fig, self.show, frames=self.getFrames, interval=70)  # Animation
         # plt.title("heart rate detection")
@@ -81,7 +93,7 @@ class MainWindow(object):
         try:
             self.exitFlag = True
             print("bpm=", self.heartRates)
-            print("bpm mean=%f, bpm std=%f" % (np.mean(self.heartRates), np.std(self.heartRates)))
+            print("bpm mean=%f, bpm std=%f" % statistic(self.heartRates))
         except Exception as e:
             print(e)
 
@@ -115,7 +127,6 @@ class MainWindow(object):
             eventlet.sleep(0)
             if self.pauseFlag:
                 self.clean()
-                print("pause is received, i=",i)
                 yield highlighted
             if self.exitFlag:
                 print("exit is received, break the loop")
@@ -129,6 +140,9 @@ class MainWindow(object):
                 yield None
             now = time.time()
             highlighted, roi, self.previousFaceBox = imgProcess.highlightRoi(frame, self.previousFaceBox)
+            if roi is None:
+                print("don't detect any face......")
+                yield highlighted
             # Calculate heart rate every one second (once have 30-second of data)
             bpm = imgProcess.calcBpm(roi, self.colorSig, self.counter, self.reader.fps, self.windowSize)
             self.counter += 1
@@ -202,6 +216,8 @@ class MainWindow(object):
 
 # window = MainWindow("/Users/jinhui/workspaces/heartrate/231A_Project/video/qijie.mp4")
 # window = MainWindow("/home/jinhui/workspaces/heartrate/231A_Project/video/qijie2.mp4")
-window = MainWindow("/home/jinhui/workspaces/heartrate/231A_Project/video/android-1.mp4")
+# window = MainWindow("/home/jinhui/workspaces/heartrate/231A_Project/video/android-1.mp4")
+# window = MainWindow("/Users/jinhui/workspaces/heartrate/231A_Project/video/android-1.mp4")
+window=MainWindow()
 window.start()
 # window.wait()
