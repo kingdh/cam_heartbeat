@@ -213,7 +213,15 @@ class MainWindow(object):
 #  1. realtime heartbeat measurement.
 #  2. get FPS according to the video. :done
 #  3. use green channel
-#  5. wavelet?
+#  4. try to average the r,g,b values togather: r+g+b/3
+#  5. cv2.equalizehist() - seems not very useful.
+#  6. try hamming window:
+#             even_times = np.linspace(self.times[0], self.times[-1], L)
+#             interpolated = np.interp(even_times, self.times, processed)
+#             interpolated = np.hamming(L) * interpolated
+#  7. use rfft instead of fft.
+#  8. wavelet?
+#  9. how to identify the noise such as head movement?
 
 # window = MainWindow("/Users/jinhui/workspaces/heartrate/231A_Project/video/qijie.mp4")
 window = MainWindow("/home/jinhui/workspaces/heartrate/231A_Project/video/qijie2.mp4")
