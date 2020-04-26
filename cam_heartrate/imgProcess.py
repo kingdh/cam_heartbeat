@@ -42,6 +42,9 @@ EYE_UPPER_FRAC = 0.45
 BOX_ERROR_MAX = 0.5
 MAX_FRAME_BUFF = 40000
 
+# GREEN_ONLY = False
+GREEN_ONLY = True
+
 pool = eventlet.GreenPool()
 faceCascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
 
@@ -253,9 +256,12 @@ def getHeartRate(window, fps, windowSize):
     std = np.std(window, axis=0)
     normalized = (window - mean) / std
 
-    # Separate into three source signals using ICA
-    ica = FastICA()
-    srcSig = ica.fit_transform(normalized)
+    if GREEN_ONLY:
+        srcSig = normalized
+    else:
+        # Separate into three source signals using ICA
+        ica = FastICA()
+        srcSig = ica.fit_transform(normalized)
 
     # Find power spectrum
     powerSpec = np.abs(np.fft.fft(srcSig, axis=0))**2
@@ -263,9 +269,19 @@ def getHeartRate(window, fps, windowSize):
     freqs = np.fft.fftfreq(windowSize, 1.0 / fps)
 
     # Find heart rate
-    # TODO: maxPwrSrc is got from channels of R,G,B, is it right?
-    maxPwrSrc = np.max(powerSpec, axis=1)
     validIdx = np.where((freqs >= MIN_HR_BPM / SEC_PER_MIN) & (freqs <= MAX_HR_BMP / SEC_PER_MIN))
+
+    # TODO: maxPwrSrc is got from channels of R,G,B, is it right?
+    if GREEN_ONLY:
+        maxPwrSrc = powerSpec[validIdx]
+        validFreqs = freqs[validIdx]
+        # maxPwrSrc = np.max()
+        maxPwrIdx = np.argmax(maxPwrSrc)
+        hr = validFreqs[maxPwrIdx]
+        return hr
+
+    maxPwrSrc = np.max(powerSpec, axis=1)
+
     validPwr = maxPwrSrc[validIdx]
     validFreqs = freqs[validIdx]
     maxPwrIdx = np.argmax(validPwr)
@@ -282,6 +298,8 @@ def calcBpm(roi, colorSigs, counter, fps, windowSize):
     if (roi is not None) and (np.size(roi) > 0):
         colorChannels = roi.reshape(-1, roi.shape[-1])
         avgColor = colorChannels.mean(axis=0)
+        if GREEN_ONLY:
+            avgColor = avgColor[1]
         colorSigs.append(avgColor)
     # print("len(colorSigs)=", len(colorSigs))
     if counter == 0:

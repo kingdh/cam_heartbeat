@@ -92,6 +92,7 @@ class MainWindow(object):
         self.postExit()
         try:
             self.exitFlag = True
+            print(self.colorSig)
             print("bpm=", self.heartRates)
             print("bpm mean=%f, bpm std=%f" % statistic(self.heartRates))
         except Exception as e:
@@ -211,13 +212,13 @@ class MainWindow(object):
 # TODO:
 #  1. realtime heartbeat measurement.
 #  2. get FPS according to the video. :done
-#  3. add timestamp with the read frame, so we can calculate the frame rate.
-
+#  3. use green channel
+#  5. wavelet?
 
 # window = MainWindow("/Users/jinhui/workspaces/heartrate/231A_Project/video/qijie.mp4")
-# window = MainWindow("/home/jinhui/workspaces/heartrate/231A_Project/video/qijie2.mp4")
+window = MainWindow("/home/jinhui/workspaces/heartrate/231A_Project/video/qijie2.mp4")
 # window = MainWindow("/home/jinhui/workspaces/heartrate/231A_Project/video/android-1.mp4")
 # window = MainWindow("/Users/jinhui/workspaces/heartrate/231A_Project/video/android-1.mp4")
-window=MainWindow()
+# window=MainWindow()
 window.start()
 # window.wait()
