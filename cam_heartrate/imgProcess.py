@@ -7,6 +7,7 @@ import eventlet
 import eventlet.queue
 import matplotlib.pyplot as plt
 import re
+import time
 from sklearn.decomposition import FastICA
 
 # Toggle these for different ROIs
@@ -42,8 +43,8 @@ EYE_UPPER_FRAC = 0.45
 BOX_ERROR_MAX = 0.5
 MAX_FRAME_BUFF = 40000
 
-# GREEN_ONLY = False
-GREEN_ONLY = True
+GREEN_ONLY = False
+# GREEN_ONLY = True
 
 pool = eventlet.GreenPool()
 faceCascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
@@ -316,6 +317,7 @@ class VideoReader(object):
         """rotation: -1 means getting ratation automatically """
         self.fps = DEFAULT_FPS
         self.rotation = rotation
+        self.t0 = time.time()
         if video is not None:
             # a file
             if not os.path.isfile(video):
@@ -359,7 +361,7 @@ class VideoReader(object):
                     # block at most 1 second
                     if self.rotation >= 0:
                         frame = cv2.rotate(frame, self.rotation)
-                    self.buffer.put(frame, True, 1)
+                    self.buffer.put((frame, time.time()-self.t0), True, 1)
                 except eventlet.queue.Full:
                     print("queue is full!")
                     pass

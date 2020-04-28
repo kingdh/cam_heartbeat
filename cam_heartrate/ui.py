@@ -7,6 +7,8 @@ import time
 import numpy as np
 from collections import deque
 import cv2
+from cam_heartrate.heartbeat_detector import HeartDetector
+import cam_heartrate.heartbeat_detector as hd
 
 class Player(FuncAnimation):
     def __init__(self, fig, func,  frames=None, init_func=None, fargs=None,
@@ -47,8 +49,8 @@ class MainWindow(object):
         # self.reader = imgProcess.VideoReader(video, rotation=cv2.ROTATE_90_COUNTERCLOCKWISE)
         self.reader = imgProcess.VideoReader(video)
 
-        self.windowSize = int(np.ceil(imgProcess.WINDOW_TIME_SEC * np.ceil(self.reader.fps)))
-        self.colorSig = deque([], self.windowSize)
+        # self.windowSize = int(np.ceil(imgProcess.WINDOW_TIME_SEC * np.ceil(self.reader.fps)))
+        self.colorSig = deque([], hd.WINDOW_SIZE)
         # self.fig = plt.figure(figsize=(12,8))
         self.fig = plt.figure(figsize=(8, 7))
         self.fig.canvas.mpl_connect('close_event', self.closed)
@@ -82,17 +84,19 @@ class MainWindow(object):
         self.bpm = 0
         self.counter = 0
         self.x = np.arange(10)
+        self.detector = HeartDetector()
 
     def clean(self):
         self.colorSig.clear()
         self.heartRates.clear()
+        self.detector.clear()
 
     def closed(self, event):
         print("main window close is called...")
         self.postExit()
         try:
             self.exitFlag = True
-            print(self.colorSig)
+            # print(self.colorSig)
             print("bpm=", self.heartRates)
             print("bpm mean=%f, bpm std=%f" % statistic(self.heartRates))
         except Exception as e:
@@ -100,6 +104,7 @@ class MainWindow(object):
 
     def exit(self, event):
         print("main window exit is called..")
+        self.detector.output()
         plt.close(self.fig)  # will cause self.closed() is called
 
 
@@ -108,6 +113,7 @@ class MainWindow(object):
         self.reader.stop()
 
     def show(self, frame):
+
         if self.img is not None and frame is not None:
             self.img.set_array(frame)
             x = np.fromiter(self.timeline, float)
@@ -123,7 +129,7 @@ class MainWindow(object):
 
     def getFrames(self):
         highlighted = None
-        t = time.time()
+        # t = time.time()
         while True:
             eventlet.sleep(0)
             if self.pauseFlag:
@@ -135,7 +141,7 @@ class MainWindow(object):
 
             # Capture frame-by-frame
             try:
-                frame = self.reader.buffer.get(block=True, timeout=1)
+                frame, timestamp = self.reader.buffer.get(block=True, timeout=1)
             except Exception as e:
                 # print("no frame is got from buffer ", e)
                 yield None
@@ -145,7 +151,8 @@ class MainWindow(object):
                 print("don't detect any face......")
                 yield highlighted
             # Calculate heart rate every one second (once have 30-second of data)
-            bpm = imgProcess.calcBpm(roi, self.colorSig, self.counter, self.reader.fps, self.windowSize)
+            # bpm = imgProcess.calcBpm(roi, self.colorSig, self.counter, self.reader.fps, self.windowSize)
+            bpm = self.detector.read_signal(roi, timestamp, self.colorSig, self.counter, self.reader.fps)
             self.counter += 1
             if bpm is not None:
                 self.heartRates.append(bpm)  # calculate heart rate here
@@ -153,7 +160,7 @@ class MainWindow(object):
             if self.counter == np.ceil(self.reader.fps):
                 self.counter = 0
                 # t1 = time.time()
-                # print("24 frames used:", t1-t)
+
                 # t = t1
             yield highlighted
             # matplotlib is not suitable for realtime plotting or video. consider PyQtGraph for an alternation.
@@ -185,11 +192,13 @@ class MainWindow(object):
     def start(self):
         if not self.reader.started:
             self.reader.start()
-        frame = self.reader.buffer.get(block=True, timeout=0.5)
+        frame, timestamp = self.reader.buffer.get(block=True, timeout=0.5)
         highlighted, roi, self.previousFaceBox = imgProcess.highlightRoi(frame, self.previousFaceBox)
-        self.heartRates.append(imgProcess.calcBpm(roi, self.colorSig, self.counter, self.reader.fps, self.windowSize))  # calculate heart rate here
+        self.detector.read_signal(roi, timestamp, self.colorSig, self.counter, self.reader.fps) #will not calculate bpm at the beginning
+
         self.counter += 1
         self.timeline.append(0)
+        self.heartRates.append(0)
         self.img = self.ax1.imshow(highlighted)
         self.start_time = time.time()
         self.bpm, = self.ax2.plot(0,0)
@@ -224,8 +233,8 @@ class MainWindow(object):
 #  9. how to identify the noise such as head movement?
 
 # window = MainWindow("/Users/jinhui/workspaces/heartrate/231A_Project/video/qijie.mp4")
-window = MainWindow("/home/jinhui/workspaces/heartrate/231A_Project/video/qijie2.mp4")
-# window = MainWindow("/home/jinhui/workspaces/heartrate/231A_Project/video/android-1.mp4")
+# window = MainWindow("/home/jinhui/workspaces/heartrate/231A_Project/video/qijie2.mp4")
+window = MainWindow("/home/jinhui/workspaces/heartrate/231A_Project/video/android-1.mp4")
 # window = MainWindow("/Users/jinhui/workspaces/heartrate/231A_Project/video/android-1.mp4")
 # window=MainWindow()
 window.start()
