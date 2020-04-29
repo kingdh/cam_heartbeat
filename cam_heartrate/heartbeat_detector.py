@@ -49,8 +49,15 @@ class HeartDetector(object):
             sig = window
         # interpolation to produce even distributed values
         even_times = np.linspace(self.times[0], self.times[-1], WINDOW_SIZE)
-        interpolated = np.interp(even_times, self.times, sig)
-        interpolated = np.hamming(WINDOW_SIZE) * interpolated
+        if sig.ndim > 1:
+            interpolated = np.array([np.interp(even_times, self.times, sig[:, i]) for i in range(sig.shape[-1])]).T
+        else:
+            interpolated = np.interp(even_times, self.times, sig)
+
+        hamming_win = np.hamming(WINDOW_SIZE)
+        if sig.ndim > 1:
+            hamming_win = hamming_win.reshape((hamming_win.shape[0],1)).repeat(interpolated.shape[-1],axis=1)
+        interpolated = hamming_win * interpolated
         sig = interpolated - np.mean(interpolated)
 
         if NORMALIZE_SIG:
@@ -81,8 +88,8 @@ class HeartDetector(object):
         return hr
 
     def append(self, power, freq):
-        self.powerSpecs.extend(power)
-        self.freqs.extend(freq)
+        self.powerSpecs.append(power)
+        self.freqs.append(freq)
         self.counter += 1
 
     def clear(self):
@@ -92,6 +99,7 @@ class HeartDetector(object):
 
     def output(self):
         print("powerspec=", self.powerSpecs)
+        print("powerSpec.var=", np.var(self.powerSpecs, axis=0))
         print("freq=", self.freqs)
 
     def clustering_DBSCAN(self):

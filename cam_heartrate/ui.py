@@ -233,8 +233,8 @@ class MainWindow(object):
 #  9. how to identify the noise such as head movement?
 
 # window = MainWindow("/Users/jinhui/workspaces/heartrate/231A_Project/video/qijie.mp4")
-# window = MainWindow("/home/jinhui/workspaces/heartrate/231A_Project/video/qijie2.mp4")
-window = MainWindow("/home/jinhui/workspaces/heartrate/231A_Project/video/android-1.mp4")
+window = MainWindow("/home/jinhui/workspaces/heartrate/231A_Project/video/qijie2.mp4")
+# window = MainWindow("/home/jinhui/workspaces/heartrate/231A_Project/video/android-1.mp4")
 # window = MainWindow("/Users/jinhui/workspaces/heartrate/231A_Project/video/android-1.mp4")
 # window=MainWindow()
 window.start()
