@@ -7,9 +7,12 @@ from sklearn.cluster import DBSCAN
 import collections
 import time
 
-WINDOW_SIZE=128
+WINDOW_SIZE=512
 NORMALIZE_SIG = False
-ICA = True
+ICA = False
+FREQ_PRECISION=2 #means 0.1**freq_precision
+# ERR_TORLERNCE = 0.01
+REVOLUTION = 3
 
 def expand(a, b):
     d = (b - a) * 0.1
@@ -22,8 +25,9 @@ class HeartDetector(object):
         self.times = collections.deque([], WINDOW_SIZE)
         # self.t0 = time.time()
         self.counter = 0
+        self.bins = {}
 
-    def read_signal(self,roi, timestamp, colorSigs, counter, fps):
+    def read_signal(self,roi, timestamp, colorSigs, counter, fps, videoFile=False):
         if (roi is not None) and (np.size(roi) > 0):
             colorChannels = roi.reshape(-1, roi.shape[-1])
             avgColor = colorChannels.mean(axis=0)
@@ -36,17 +40,17 @@ class HeartDetector(object):
             if len(colorSigs) < WINDOW_SIZE:
                 return 0
             else:
-                heartRate = self._analyze_signal(colorSigs, fps)
+                heartRate = self._analyze_signal(colorSigs, fps, videoFile)
                 return heartRate * 60
         else:
             return None
 
-    def _analyze_signal(self, window, fps):
+    def _analyze_signal(self, window, fps, videoFile=False):
         if not imgProcess.GREEN_ONLY and ICA:
             ica = FastICA()
             sig = ica.fit_transform(window)
         else:
-            sig = window
+            sig = np.array(window)
         # interpolation to produce even distributed values
         even_times = np.linspace(self.times[0], self.times[-1], WINDOW_SIZE)
         if sig.ndim > 1:
@@ -63,8 +67,8 @@ class HeartDetector(object):
         if NORMALIZE_SIG:
             std = np.std(sig, axis=0)
             sig = sig/std
-
-        fps = float(WINDOW_SIZE) / (self.times[-1] - self.times[0])
+        if not videoFile:
+            fps = float(WINDOW_SIZE) / (self.times[-1] - self.times[0])
 
         # Find power spectrum, use rfft instead of fft
         powerSpec = np.abs(np.fft.rfft(sig, axis=0)) ** 2
@@ -82,14 +86,25 @@ class HeartDetector(object):
             validPwr = powerSpec[validIdx]
 
         validFreqs = freqs[validIdx]
-        self.append(validPwr, validFreqs)
+        self.append( validFreqs, validPwr)
         maxPwrIdx = np.argmax(validPwr)
         hr = validFreqs[maxPwrIdx]
         return hr
 
-    def append(self, power, freq):
-        self.powerSpecs.append(power)
-        self.freqs.append(freq)
+    def append(self, freqs, power):
+        """length of power and freq should be equal"""
+        assert(len(power) == len(freqs))
+        for tup in zip(freqs, power):
+            bin = np.round(tup[0], decimals=FREQ_PRECISION)
+            if bin < imgProcess.MIN_HR_BPM/60:
+                print("bin is out of range...")
+            if bin in self.bins:
+                self.bins[bin][1].append(tup[1]) #add pwr
+                self.bins[bin][0].append(tup[0]) # add freq
+            else:
+                self.bins[bin] = [[tup[0], ], [tup[1],]]
+        # self.powerSpecs.append(power)
+        # self.freqs.append(freqs)
         self.counter += 1
 
     def clear(self):
@@ -98,9 +113,16 @@ class HeartDetector(object):
         self.freqs.clear()
 
     def output(self):
-        print("powerspec=", self.powerSpecs)
-        print("powerSpec.var=", np.var(self.powerSpecs, axis=0))
-        print("freq=", self.freqs)
+        print("counters=", self.counter)
+        for bin in self.bins.items():
+            print("\n----\nfreq=", bin[0], "; corresponding hr=", bin[0]*60)
+            print("detail freqs=", bin[1][0])
+            print("number of power spec", len(bin[1][1]), "; power spec=", bin[1][1])
+            print("var(powerSpec)=", np.var(bin[1][1]))
+
+        # print("powerspec=", self.powerSpecs)
+        # print("powerSpec.var=", np.var(self.powerSpecs, axis=0))
+        # print("freq=", self.freqs)
 
     def clustering_DBSCAN(self):
         params = ((0.2, 5), (0.2, 10), (0.2, 15), (0.3, 5), (0.3, 10), (0.3, 15))

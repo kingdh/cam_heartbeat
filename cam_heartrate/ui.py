@@ -67,10 +67,10 @@ class MainWindow(object):
         self.exitbtn = Button(ax_exit, 'exit')
         self.exitbtn.on_clicked(self.exit)
 
-        self.ax1 = plt.axes((0.05, 0.25, 0.3, 0.7))
+        self.ax1 = plt.axes((0.02, 0.25, 0.52, 0.7))
         self.ax1.set_axis_off()
         self.ax1.set_xlabel("video")
-        self.ax2 = plt.axes((0.4, 0.25, 0.5, 0.7))
+        self.ax2 = plt.axes((0.6, 0.25, 0.37, 0.7))
         self.ax2.set_xlabel('Time (sec)')
         self.ax2.set_ylabel("bpm")
         self.ax2.set_ylim(0, 200)
@@ -152,7 +152,7 @@ class MainWindow(object):
                 yield highlighted
             # Calculate heart rate every one second (once have 30-second of data)
             # bpm = imgProcess.calcBpm(roi, self.colorSig, self.counter, self.reader.fps, self.windowSize)
-            bpm = self.detector.read_signal(roi, timestamp, self.colorSig, self.counter, self.reader.fps)
+            bpm = self.detector.read_signal(roi, timestamp, self.colorSig, self.counter, self.reader.fps, self.reader.videoFile)
             self.counter += 1
             if bpm is not None:
                 self.heartRates.append(bpm)  # calculate heart rate here
@@ -232,10 +232,10 @@ class MainWindow(object):
 #  8. wavelet?
 #  9. how to identify the noise such as head movement?
 
-# window = MainWindow("/Users/jinhui/workspaces/heartrate/231A_Project/video/qijie.mp4")
-window = MainWindow("/home/jinhui/workspaces/heartrate/231A_Project/video/qijie2.mp4")
+# window = MainWindow("/Users/jinhui/workspaces/heartrate/231A_Project/video/qijie2.mp4")
+# window = MainWindow("/home/jinhui/workspaces/heartrate/231A_Project/video/qijie2.mp4")
 # window = MainWindow("/home/jinhui/workspaces/heartrate/231A_Project/video/android-1.mp4")
 # window = MainWindow("/Users/jinhui/workspaces/heartrate/231A_Project/video/android-1.mp4")
-# window=MainWindow()
+window=MainWindow()
 window.start()
 # window.wait()

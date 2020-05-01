@@ -328,6 +328,7 @@ class VideoReader(object):
 
             self.videoFile = True
         else:
+            self.videoFile = False
             self.video = cv2.VideoCapture(0)
         try:
             self.fps = self.video.get(cv2.CAP_PROP_FPS)

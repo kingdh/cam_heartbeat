@@ -21,7 +21,7 @@ CASCADE_PATH = "haarcascade_frontalface_default.xml"
 # VIDEO_DIR = "/home/jinhui/workspaces/heartrate/231A_Project/video/"
 VIDEO_DIR = "/Users/jinhui/workspaces/heartrate/231A_Project/video/"
 # DEFAULT_VIDEO = "android-1.mp4"
-DEFAULT_VIDEO = "qijie2.mp4"
+# DEFAULT_VIDEO = "qijie2.mp4"
 RESULTS_SAVE_DIR = "/home/jinhui/workspaces/heartrate/231A_Project/results/" + ("segmentation/" if USE_SEGMENTATION else "no_segmentation/")
 if REMOVE_EYES:
     RESULTS_SAVE_DIR += "no_eyes/"
@@ -63,11 +63,11 @@ def segment(image, faceBox):
     fgModel = np.zeros((1,65),np.float64)
     cv2.grabCut(image, mask, faceBox, bgModel, fgModel, GRABCUT_ITERATIONS, cv2.GC_INIT_WITH_RECT)
     backgrndMask = np.where((mask == cv2.GC_BGD) | (mask == cv2.GC_PR_BGD),True,False).astype('uint8')
-    
+
     backgrndMask = np.broadcast_to(backgrndMask[:,:,np.newaxis], np.shape(image))
     return backgrndMask
 
-def getROI(image, faceBox): 
+def getROI(image, faceBox):
     if USE_SEGMENTATION:
         widthFrac = SEGMENTATION_WIDTH_FRACTION
         heigtFrac = SEGMENTATION_HEIGHT_FRACTION
@@ -89,8 +89,8 @@ def getROI(image, faceBox):
     else:
         (x, y, w, h) = faceBoxAdjusted
         backgrndMask = np.full(image.shape, True, dtype=bool)
-        backgrndMask[y:y+h, x:x+w, :] = False 
-    
+        backgrndMask[y:y+h, x:x+w, :] = False
+
     (x, y, w, h) = faceBox
     if REMOVE_EYES:
         backgrndMask[y + np.ceil(h * EYE_LOWER_FRAC).astype(int) : y + np.ceil(h * EYE_UPPER_FRAC).astype(int), :] = True
