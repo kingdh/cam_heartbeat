@@ -27,10 +27,9 @@ HEIGHT_FRACTION = 0.8
 DEFAULT_FPS = 23.99
 WINDOW_TIME_SEC = 5
 
-MIN_HR_BPM = 45.0
-MAX_HR_BMP = 240.0
+
 MAX_HR_CHANGE = 12.0
-SEC_PER_MIN = 60
+
 
 SEGMENTATION_HEIGHT_FRACTION = 1.2
 SEGMENTATION_WIDTH_FRACTION = 0.8
@@ -251,66 +250,6 @@ def highlightRoi(frame, previousFaceBox):
     changed = changeFrame(roi)
     return changed, roi, previousFaceBox
 
-def getHeartRate(window, fps, windowSize):
-    # Normalize across the window to have zero-mean and unit variance
-    mean = np.mean(window, axis=0)
-    std = np.std(window, axis=0)
-    normalized = (window - mean) / std
-
-    if GREEN_ONLY:
-        srcSig = normalized
-    else:
-        # Separate into three source signals using ICA
-        ica = FastICA()
-        srcSig = ica.fit_transform(normalized)
-
-    # Find power spectrum
-    powerSpec = np.abs(np.fft.fft(srcSig, axis=0))**2
-
-    freqs = np.fft.fftfreq(windowSize, 1.0 / fps)
-
-    # Find heart rate
-    validIdx = np.where((freqs >= MIN_HR_BPM / SEC_PER_MIN) & (freqs <= MAX_HR_BMP / SEC_PER_MIN))
-
-    # TODO: maxPwrSrc is got from channels of R,G,B, is it right?
-    if GREEN_ONLY:
-        maxPwrSrc = powerSpec[validIdx]
-        validFreqs = freqs[validIdx]
-        # maxPwrSrc = np.max()
-        maxPwrIdx = np.argmax(maxPwrSrc)
-        hr = validFreqs[maxPwrIdx]
-        return hr
-
-    maxPwrSrc = np.max(powerSpec, axis=1)
-
-    validPwr = maxPwrSrc[validIdx]
-    validFreqs = freqs[validIdx]
-    maxPwrIdx = np.argmax(validPwr)
-    hr = validFreqs[maxPwrIdx]
-    print("hr=", hr*60)
-
-    # plotSignals(normalized, "Normalized color intensity")
-    # plotSignals(srcSig, "Source signal strength")
-    # plotSpectrum(freqs, powerSpec)
-
-    return hr
-
-def calcBpm(roi, colorSigs, counter, fps, windowSize):
-    if (roi is not None) and (np.size(roi) > 0):
-        colorChannels = roi.reshape(-1, roi.shape[-1])
-        avgColor = colorChannels.mean(axis=0)
-        if GREEN_ONLY:
-            avgColor = avgColor[1]
-        colorSigs.append(avgColor)
-    # print("len(colorSigs)=", len(colorSigs))
-    if counter == 0:
-        if len(colorSigs) < windowSize:
-            return 0
-        else:
-            heartRate = getHeartRate(colorSigs, fps, windowSize)
-            return heartRate * 60
-    else:
-        return None
 
 class VideoReader(object):
     def __init__(self, video, buffersize=MAX_FRAME_BUFF, rotation=-1):

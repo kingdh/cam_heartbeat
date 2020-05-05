@@ -21,7 +21,7 @@ CASCADE_PATH = "haarcascade_frontalface_default.xml"
 # VIDEO_DIR = "/home/jinhui/workspaces/heartrate/231A_Project/video/"
 VIDEO_DIR = "/Users/jinhui/workspaces/heartrate/231A_Project/video/"
 # DEFAULT_VIDEO = "android-1.mp4"
-# DEFAULT_VIDEO = "qijie2.mp4"
+DEFAULT_VIDEO = "qijie2.mp4"
 RESULTS_SAVE_DIR = "/home/jinhui/workspaces/heartrate/231A_Project/results/" + ("segmentation/" if USE_SEGMENTATION else "no_segmentation/")
 if REMOVE_EYES:
     RESULTS_SAVE_DIR += "no_eyes/"

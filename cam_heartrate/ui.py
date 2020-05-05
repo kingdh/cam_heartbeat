@@ -46,11 +46,9 @@ class MainWindow(object):
         # TODO: maximum heart rate data number. if that number is reached, we should do something. Now we do nothing
         self.max_hr_num = 10000
 
-        # self.reader = imgProcess.VideoReader(video, rotation=cv2.ROTATE_90_COUNTERCLOCKWISE)
         self.reader = imgProcess.VideoReader(video)
 
-        # self.windowSize = int(np.ceil(imgProcess.WINDOW_TIME_SEC * np.ceil(self.reader.fps)))
-        self.colorSig = deque([], hd.WINDOW_SIZE)
+        self.colorSig = None
         # self.fig = plt.figure(figsize=(12,8))
         self.fig = plt.figure(figsize=(8, 7))
         self.fig.canvas.mpl_connect('close_event', self.closed)
@@ -104,7 +102,7 @@ class MainWindow(object):
 
     def exit(self, event):
         print("main window exit is called..")
-        self.detector.output()
+        # self.detector.output()
         plt.close(self.fig)  # will cause self.closed() is called
 
 
@@ -150,59 +148,42 @@ class MainWindow(object):
             if roi is None:
                 print("don't detect any face......")
                 yield highlighted
+                continue
+            if self.colorSig is None:
+                window_size = self.detector.estimate_fps(roi, timestamp, self.reader)
+                if window_size is not None:
+                    self.colorSig = deque([], window_size)
+                yield highlighted
+                continue
             # Calculate heart rate every one second (once have 30-second of data)
             # bpm = imgProcess.calcBpm(roi, self.colorSig, self.counter, self.reader.fps, self.windowSize)
             bpm = self.detector.read_signal(roi, timestamp, self.colorSig, self.counter, self.reader.fps, self.reader.videoFile)
+            # print("len of signal=", len(self.colorSig))
             self.counter += 1
             if bpm is not None:
                 self.heartRates.append(bpm)  # calculate heart rate here
                 self.timeline.append(now - self.start_time)
+            # reader's fps is only applied for video file, not for live show.
             if self.counter == np.ceil(self.reader.fps):
                 self.counter = 0
-                # t1 = time.time()
 
-                # t = t1
             yield highlighted
-            # matplotlib is not suitable for realtime plotting or video. consider PyQtGraph for an alternation.
-            # self.ax1.imshow(highlighted)
 
-            # cv2.imshow("video", highlighted)
-            # plt.show()
-            # plt.pause(0.01)
-        # plt.off()
-        # print("show exit...")
-
-    # def start(self):
-    #     if self.running:
-    #         return
-    #     else:
-    #         self.running = True
-    #     if not self.reader.started:
-    #         self.reader.start()
-    #
-    #     self.pauseFlag = False
-    #     print("exit is set to False")
-    #     self.exitFlag = False
-    #     self.thread = imgProcess.pool.spawn(self.show)
-    #     print("main window start exit...", self.thread)
-    #     # self.thread.wait()
-        # plt.ioff()  # no video is displayed
-        # plt.show()
 
     def start(self):
         if not self.reader.started:
             self.reader.start()
         frame, timestamp = self.reader.buffer.get(block=True, timeout=0.5)
         highlighted, roi, self.previousFaceBox = imgProcess.highlightRoi(frame, self.previousFaceBox)
-        self.detector.read_signal(roi, timestamp, self.colorSig, self.counter, self.reader.fps) #will not calculate bpm at the beginning
-
-        self.counter += 1
+        # at first, we only show the video, but don't calculate the bpm
+        # self.detector.read_signal(roi, timestamp, self.colorSig, self.counter, self.reader.fps) #will not calculate bpm at the beginning
+        #
+        # self.counter += 1
         self.timeline.append(0)
         self.heartRates.append(0)
         self.img = self.ax1.imshow(highlighted)
         self.start_time = time.time()
         self.bpm, = self.ax2.plot(0,0)
-        # self.bpm, = self.ax2.plot(self.x, 20*np.sin(np.random.randn(10)))
         self.running = True
         plt.show()
 
@@ -232,10 +213,12 @@ class MainWindow(object):
 #  8. wavelet?
 #  9. how to identify the noise such as head movement?
 
-# window = MainWindow("/Users/jinhui/workspaces/heartrate/231A_Project/video/qijie2.mp4")
+np.set_printoptions(suppress=True)
+
+window = MainWindow("/Users/jinhui/workspaces/heartrate/231A_Project/video/qijie2.mp4")
 # window = MainWindow("/home/jinhui/workspaces/heartrate/231A_Project/video/qijie2.mp4")
 # window = MainWindow("/home/jinhui/workspaces/heartrate/231A_Project/video/android-1.mp4")
 # window = MainWindow("/Users/jinhui/workspaces/heartrate/231A_Project/video/android-1.mp4")
-window=MainWindow()
+# window=MainWindow()
 window.start()
 # window.wait()
