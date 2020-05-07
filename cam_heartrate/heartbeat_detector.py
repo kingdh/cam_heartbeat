@@ -201,4 +201,4 @@ class HeartDetector(object):
         # print("powerSpec.var=", np.var(self.powerSpecs, axis=0))
         # print("freq=", self.freqs)
 
- 
+

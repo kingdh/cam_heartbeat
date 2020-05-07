@@ -220,7 +220,7 @@ def getRotationInfo(video):
             return -1
         rotation = match_rotation.group("rotation")
     except FileNotFoundError:
-        print("Waringing: can't get roation inforamtion")
+        print("Warning: can't get rotation information")
         return -1
 
     if rotation == "90":
