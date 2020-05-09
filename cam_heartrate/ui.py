@@ -55,9 +55,9 @@ class MainWindow(object):
         self.player = Player(self.fig, self.show, frames=self.getFrames, interval=70)  # Animation
         # plt.title("heart rate detection")
         # plt.ion() //not used for animation
-        ax_start = plt.axes([0.2, 0.05, 0.1, 0.075])
-        ax_pause = plt.axes([0.31, 0.05, 0.1, 0.075])
-        ax_exit = plt.axes([0.52, 0.05, 0.1, 0.075])
+        ax_start = plt.axes([0.2, 0.05, 0.1, 0.055])
+        ax_pause = plt.axes([0.31, 0.05, 0.1, 0.055])
+        ax_exit = plt.axes([0.52, 0.05, 0.1, 0.055])
         self.startbtn = Button(ax_start, 'start')
         self.startbtn.on_clicked(self.player.start)
         self.pausebtn = Button(ax_pause, 'pause')
@@ -65,21 +65,28 @@ class MainWindow(object):
         self.exitbtn = Button(ax_exit, 'exit')
         self.exitbtn.on_clicked(self.exit)
 
-        self.ax1 = plt.axes((0.02, 0.25, 0.52, 0.7))
+        self.ax1 = plt.axes((0.02, 0.57, 0.52, 0.38))
         self.ax1.set_axis_off()
         self.ax1.set_xlabel("video")
-        self.ax2 = plt.axes((0.6, 0.25, 0.37, 0.7))
+        self.ax2 = plt.axes((0.6, 0.57, 0.37, 0.38))
         self.ax2.set_xlabel('Time (sec)')
         self.ax2.set_ylabel("bpm")
         self.ax2.set_ylim(0, 200)
         self.ax2.set_xlim(0, MAX_X_LIM)
         self.ax2.title.set_text('Heart Rate')
+        self.ax3 = plt.axes((0.1, 0.16, 0.7, 0.35))
         self.thread = None
         self.running = False
         self.img = None
         self.previousFaceBox = None
         self.start_time = None
-        self.bpm = 0
+        self.bpm = None
+        self.fp = None
+        self.bfp = None
+        self.fp_x=[]
+        self.fp_y=[]
+        self.bfp_x=[]
+        self.bfp_y=[]
         self.counter = 0
         self.x = np.arange(10)
         self.detector = HeartDetector()
@@ -121,6 +128,8 @@ class MainWindow(object):
                 right = np.ceil(x[-1]).astype(int)
                 self.ax2.set_xlim(right-MAX_X_LIM, right)
             self.bpm.set_data(x, y)
+            self.fp.set_data(self.fp_x,self.fp_y)
+            self.bfp.set_data(self.bfp_x, self.bfp_y)
         else:
             pass
         return self.img, self.bpm
@@ -144,7 +153,7 @@ class MainWindow(object):
                 # print("no frame is got from buffer ", e)
                 yield None
             now = time.time()
-            highlighted, roi, self.previousFaceBox = imgProcess.highlightRoi(frame, self.previousFaceBox)
+            highlighted, roi, self.previousFaceBox, bg = imgProcess.highlightRoi(frame, self.previousFaceBox)
             if roi is None:
                 print("don't detect any face......")
                 yield highlighted
@@ -157,7 +166,7 @@ class MainWindow(object):
                 continue
             # Calculate heart rate every one second (once have 30-second of data)
             # bpm = imgProcess.calcBpm(roi, self.colorSig, self.counter, self.reader.fps, self.windowSize)
-            bpm = self.detector.read_signal(roi, timestamp, self.colorSig, self.counter, self.reader.fps, self.reader.videoFile)
+            bpm, self.fp_x,self.fp_y, self.bfp_x,self.bfp_y = self.detector.read_signal(roi, timestamp, self.colorSig, self.counter, self.reader.fps, bg, self.reader.videoFile)
             # print("len of signal=", len(self.colorSig))
             self.counter += 1
             if bpm is not None:
@@ -174,7 +183,7 @@ class MainWindow(object):
         if not self.reader.started:
             self.reader.start()
         frame, timestamp = self.reader.buffer.get(block=True, timeout=0.5)
-        highlighted, roi, self.previousFaceBox = imgProcess.highlightRoi(frame, self.previousFaceBox)
+        highlighted, roi, self.previousFaceBox, bg = imgProcess.highlightRoi(frame, self.previousFaceBox)
         # at first, we only show the video, but don't calculate the bpm
         # self.detector.read_signal(roi, timestamp, self.colorSig, self.counter, self.reader.fps) #will not calculate bpm at the beginning
         #
@@ -184,6 +193,8 @@ class MainWindow(object):
         self.img = self.ax1.imshow(highlighted)
         self.start_time = time.time()
         self.bpm, = self.ax2.plot(0,0)
+        self.fp, = self.ax3.plot([0,0],'x-g', linewidth=2)
+        self.bfp, = self.ax3.plot([0,0],'o-r', linewidth=2)
         self.running = True
         plt.show()
 

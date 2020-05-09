@@ -1,6 +1,8 @@
 import numpy as np
 import cam_heartrate.imgProcess as imgProcess
 from sklearn.decomposition import FastICA
+import numpy.random
+from scipy import ndimage
 import matplotlib.pyplot as plt
 import matplotlib.colors
 from sklearn.cluster import DBSCAN
@@ -8,7 +10,8 @@ import collections
 import time
 
 
-NORMALIZE_SIG = False
+# NORMALIZE_SIG = False
+NORMALIZE_SIG = True
 MIN_HR_BPM = 45.0
 MAX_HR_BMP = 240.0
 SEC_PER_MIN = 60
@@ -17,8 +20,9 @@ CALC_INTERVAL = 1 # every such interval calculate bpm
 # ICA = False
 ICA = True
 FREQ_PRECISION=2 #means 0.1**freq_precision
-REVOLUTION = 3
+REVOLUTION = 10
 FPS_ESTIMATION_PERIOD=2
+BG_SAMPLE_RATIO = 0.4
 
 def expand(a, b):
     d = (b - a) * 0.1
@@ -41,14 +45,19 @@ class HeartDetector(object):
         self.counter = 0
         self.bins = {}
         self.last_ts = None
+        self.bg = None
 
-    def read_signal(self,roi, timestamp, colorSigs, counter, fps, videoFile=False):
+    def read_signal(self,roi, timestamp, colorSigs, counter, fps, background, videoFile=False):
         if (roi is not None) and (np.size(roi) > 0):
+            bg_idx = np.random.choice(background.shape[0], int(np.floor(background.shape[0]*BG_SAMPLE_RATIO)),replace=False)
+            avg_bg = background[bg_idx].mean(axis=0)
             colorChannels = roi.reshape(-1, roi.shape[-1])
             avgColor = colorChannels.mean(axis=0)
             if imgProcess.GREEN_ONLY:
                 avgColor = avgColor[1]
+                avg_bg = avg_bg[1]
             colorSigs.append(avgColor)
+            self.bg.append(avg_bg)
             self.times.append(timestamp)
         calc = False
         if (self.times[-1] - self.last_ts) > CALC_INTERVAL:
@@ -58,12 +67,16 @@ class HeartDetector(object):
         # print("len(colorSigs)=", len(colorSigs))
         if calc or (videoFile and counter == 0):
             if len(colorSigs) < self.WINDOW_SIZE:
-                return 0
+                return 0, [0.,], [0.,], [0.,], [0.,]
             else:
-                heartRate = self._analyze_signal(colorSigs, fps, videoFile)
-                return heartRate
+                freqs, pwr = self._analyze_signal(colorSigs, fps, videoFile)
+                bg_freqs, bg_pwr = self._analyze_signal(self.bg, fps, videoFile)
+                assert(freqs.shape[0] == bg_freqs.shape[0])
+                diff_pwr = pwr - bg_pwr
+                heartRate = self.calc_bpm(freqs, diff_pwr)
+                return heartRate, freqs, pwr, bg_freqs,bg_pwr
         else:
-            return None
+            return None,None, None, None, None
 
     def estimate_fps(self, roi, timestamp, reader):
         fps = 0
@@ -84,10 +97,11 @@ class HeartDetector(object):
             self.counter = 0
             self.WINDOW_SIZE = fps / REVOLUTION * 60
             self.WINDOW_SIZE = int(np.exp2(np.ceil(np.log2(self.WINDOW_SIZE))))
-            self.WINDOW_SIZE = 512 # for test
+            # self.WINDOW_SIZE = 512 # for test
             print("get window size=", self.WINDOW_SIZE)
             self.times = collections.deque([], self.WINDOW_SIZE)
             self.last_ts = timestamp
+            self.bg = collections.deque([], self.WINDOW_SIZE)
             return self.WINDOW_SIZE
 
         return None
@@ -135,9 +149,9 @@ class HeartDetector(object):
         validFreqs = freqs[validIdx]
         # print("validFreqs=", validFreqs)
 
-        hr = self.calc_bpm(validFreqs, validPwr)
+        # hr = self.calc_bpm(validFreqs, validPwr)
 
-        return hr
+        return validFreqs, validPwr
 
     def append(self, freqs, power):
         """length of power and freq should be equal"""

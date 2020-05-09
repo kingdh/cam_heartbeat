@@ -11,7 +11,8 @@ import time
 from sklearn.decomposition import FastICA
 
 # Toggle these for different ROIs
-REMOVE_EYES = True
+# REMOVE_EYES = True
+REMOVE_EYES = False
 FOREHEAD_ONLY = False
 USE_SEGMENTATION = False
 USE_MY_GRABCUT = False
@@ -42,8 +43,8 @@ EYE_UPPER_FRAC = 0.45
 BOX_ERROR_MAX = 0.5
 MAX_FRAME_BUFF = 40000
 
-GREEN_ONLY = False
-# GREEN_ONLY = True
+# GREEN_ONLY = False
+GREEN_ONLY = True
 
 pool = eventlet.GreenPool()
 faceCascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
@@ -101,8 +102,6 @@ def distance(roi1, roi2):
 
 
 def getBestROI(frame, faceCascade, previousFaceBox):
-    global tmpcount
-
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     faces = faceCascade.detectMultiScale(gray, scaleFactor=1.1,
                                          minNeighbors=5, minSize=(MIN_FACE_SIZE, MIN_FACE_SIZE),
@@ -151,9 +150,10 @@ def getBestROI(frame, faceCascade, previousFaceBox):
         #cv2.rectangle(frame, (x, y), (x+w, y+h), (255, 255, 255), 2)
         # exit(0)
         roi, mask1 = getROI(frame, faceBox)
-        return faceBox, roi, mask1
+        background = get_background(faceBox, frame)
+        return faceBox, roi, mask1, background
 
-    return None, None, None
+    return None, None, None, None
 
 def changeFrame_old(frame, masked):
     """
@@ -173,6 +173,25 @@ def changeFrame_old(frame, masked):
     b, g, r = cv2.split(newBGR)
     changed = cv2.merge([r,g,b])
     return changed
+
+def get_background(facebox, img):
+    """return an array with shape of (n, 3). n=h*w-h1*w1, h and w are the height and width of the image,
+    and h1,w1 are the height and width of the facebox"""
+    x,y, w1,h1 = facebox
+    h, w, channel = img.shape
+    bg = np.zeros((h*w-h1*w1, channel))
+    cur_len = 0
+    next_len = w * y
+    bg[cur_len:next_len, :] = img[0:y, :, :].reshape(-1, 3)
+    cur_len = next_len
+    next_len = w * y + (h - y) * x
+    bg[cur_len:next_len, :] = img[y:, 0:x, :].reshape(-1, 3)
+    cur_len = next_len
+    next_len = cur_len + (w - (x + w1)) * (h - y)
+    bg[cur_len: next_len, :] = img[y:, x + w1:, :].reshape(-1, 3)
+    cur_len = next_len
+    bg[cur_len:, :] = img[y + h1:, x:x + w1, :].reshape(-1, 3)
+    return bg
 
 def changeFrame(roi):
     """
@@ -244,11 +263,11 @@ def getFrameRotation(videoFile):
     return rotation
 
 def highlightRoi(frame, previousFaceBox):
-    previousFaceBox, roi, mask = getBestROI(frame, faceCascade, previousFaceBox)
+    previousFaceBox, roi, mask, bg = getBestROI(frame, faceCascade, previousFaceBox)
     if roi is None:
-        return frame, None, previousFaceBox
+        return frame, None, previousFaceBox, bg
     changed = changeFrame(roi)
-    return changed, roi, previousFaceBox
+    return changed, roi, previousFaceBox, bg
 
 
 class VideoReader(object):
