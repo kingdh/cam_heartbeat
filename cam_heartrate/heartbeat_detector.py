@@ -45,9 +45,25 @@ class HeartDetector(object):
         self.counter = 0
         self.bins = {}
         self.last_ts = None
-        self.bg = None
+        self.bg = collections.deque([])
+        self.bg_window = None
+        # if imgProcess.HSV_MODE:
+        #     self.bg = collections.deque([])
+        # else:
+        #     self.bg = None
 
-    def read_signal(self,roi, timestamp, colorSigs, counter, fps, background, videoFile=False):
+    def read_hsv_signal(self,roi, timestamp, colorSigs, counter, fps, background, videoFile=False):
+        if (roi is not None) and (np.size(roi) > 0):
+            bg_idx = np.random.choice(background.shape[0], int(np.floor(background.shape[0]*BG_SAMPLE_RATIO)),replace=False)
+            avg_bg_h = background[bg_idx].mean(axis=0)[2]
+            colorChannels = roi.reshape(-1, roi.shape[-1])
+            avgColor = colorChannels.mean(axis=0)[2]
+
+            colorSigs.append(avgColor)
+            self.bg.append(avg_bg_h)
+            self.times.append(timestamp)
+
+    def read_signal(self, roi, timestamp, window, colorSig, counter, fps, background, videoFile=False):
         if (roi is not None) and (np.size(roi) > 0):
             bg_idx = np.random.choice(background.shape[0], int(np.floor(background.shape[0]*BG_SAMPLE_RATIO)),replace=False)
             avg_bg = background[bg_idx].mean(axis=0)
@@ -56,8 +72,10 @@ class HeartDetector(object):
             if imgProcess.GREEN_ONLY:
                 avgColor = avgColor[1]
                 avg_bg = avg_bg[1]
-            colorSigs.append(avgColor)
+            window.append(avgColor)
+            colorSig.append(avgColor)
             self.bg.append(avg_bg)
+            self.bg_window.append(avg_bg)
             self.times.append(timestamp)
         calc = False
         if (self.times[-1] - self.last_ts) > CALC_INTERVAL:
@@ -66,11 +84,11 @@ class HeartDetector(object):
 
         # print("len(colorSigs)=", len(colorSigs))
         if calc or (videoFile and counter == 0):
-            if len(colorSigs) < self.WINDOW_SIZE:
+            if len(window) < self.WINDOW_SIZE:
                 return 0, [0.,], [0.,], [0.,], [0.,]
             else:
-                freqs, pwr = self._analyze_signal(colorSigs, fps, videoFile)
-                bg_freqs, bg_pwr = self._analyze_signal(self.bg, fps, videoFile)
+                freqs, pwr = self._analyze_signal(window, fps, videoFile)
+                bg_freqs, bg_pwr = self._analyze_signal(self.bg_window, fps, videoFile)
                 assert(freqs.shape[0] == bg_freqs.shape[0])
                 diff_pwr = pwr - bg_pwr
                 heartRate = self.calc_bpm(freqs, diff_pwr)
@@ -80,7 +98,7 @@ class HeartDetector(object):
 
     def estimate_fps(self, roi, timestamp, reader):
         fps = 0
-        if reader.videoFile:
+        if reader.videoFile and not imgProcess.DESAMPLE:
             fps = reader.fps
         elif (roi is not None) and (np.size(roi) > 0):
             # estimate camera fps, and return the window size
@@ -100,8 +118,10 @@ class HeartDetector(object):
             # self.WINDOW_SIZE = 512 # for test
             print("get window size=", self.WINDOW_SIZE)
             self.times = collections.deque([], self.WINDOW_SIZE)
+            self.bg_window = collections.deque([], self.WINDOW_SIZE)
             self.last_ts = timestamp
-            self.bg = collections.deque([], self.WINDOW_SIZE)
+            # if not imgProcess.HSV_MODE:
+            #     self.bg = collections.deque([], self.WINDOW_SIZE)
             return self.WINDOW_SIZE
 
         return None

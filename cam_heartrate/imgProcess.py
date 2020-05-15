@@ -31,6 +31,9 @@ WINDOW_TIME_SEC = 5
 
 MAX_HR_CHANGE = 12.0
 
+# HIGHLIGHT = True
+HIGHLIGHT = False
+
 
 SEGMENTATION_HEIGHT_FRACTION = 1.2
 SEGMENTATION_WIDTH_FRACTION = 0.8
@@ -45,6 +48,11 @@ MAX_FRAME_BUFF = 40000
 
 # GREEN_ONLY = False
 GREEN_ONLY = True
+# HSV_MODE = True
+HSV_MODE = False
+
+DESAMPLE = True
+DESAMPLE_RATE = 6
 
 pool = eventlet.GreenPool()
 faceCascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
@@ -179,7 +187,7 @@ def get_background(facebox, img):
     and h1,w1 are the height and width of the facebox"""
     x,y, w1,h1 = facebox
     h, w, channel = img.shape
-    bg = np.zeros((h*w-h1*w1, channel))
+    bg = np.zeros((h*w-h1*w1, channel)).astype('uint8')
     cur_len = 0
     next_len = w * y
     bg[cur_len:next_len, :] = img[0:y, :, :].reshape(-1, 3)
@@ -202,8 +210,9 @@ def changeFrame(roi):
     """
     changed = np.copy(roi.data)
     np.floor_divide(changed, 2, out=changed, where=roi.mask)
-    b, g, r = cv2.split(changed)
-    changed = cv2.merge([r,g,b])
+    changed[:, :, [0, 2]] = changed[:, :, [2, 0]]  # bgr -> rgb
+    # b, g, r = cv2.split(changed)
+    # changed = cv2.merge([r,g,b])
     return changed
 
 def convert2MatplotColor(frame):
@@ -266,7 +275,16 @@ def highlightRoi(frame, previousFaceBox):
     previousFaceBox, roi, mask, bg = getBestROI(frame, faceCascade, previousFaceBox)
     if roi is None:
         return frame, None, previousFaceBox, bg
-    changed = changeFrame(roi)
+    changed = frame
+    if HIGHLIGHT:
+        changed = changeFrame(roi)
+    else:
+        changed[:,:,[0,2]] = changed[:,:,[2,0]]  #bgr -> rgb
+    if HSV_MODE:
+        data = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+        roi = np.ma.array(data, mask=mask)
+        bg = cv2.cvtColor(bg.reshape(1, bg.shape[0], 3), cv2.COLOR_BGR2HSV)
+        bg.resize(bg.shape[1], 3)
     return changed, roi, previousFaceBox, bg
 
 
@@ -274,8 +292,10 @@ class VideoReader(object):
     def __init__(self, video, buffersize=MAX_FRAME_BUFF, rotation=-1):
         """rotation: -1 means getting ratation automatically """
         self.fps = DEFAULT_FPS
+        self.time_per_frame = -1
         self.rotation = rotation
         self.t0 = time.time()
+        self.step = 0
         if video is not None:
             # a file
             if not os.path.isfile(video):
@@ -290,6 +310,9 @@ class VideoReader(object):
             self.video = cv2.VideoCapture(0)
         try:
             self.fps = self.video.get(cv2.CAP_PROP_FPS)
+            self.time_per_frame = 1.0/self.fps
+            if DESAMPLE and self.fps > DESAMPLE_RATE:
+                self.step = int(np.floor(self.fps/DESAMPLE_RATE))
             print("xxxxxxxxxxxxxx FPS=", self.fps)
         except Exception as e:
             print("can't get proper fps, and this will impact the heart rate calculation.", e)
@@ -305,13 +328,17 @@ class VideoReader(object):
     def readFrames(self):
         """return a highlighted frame"""
         print("reader thread started...")
-        i=1
+        i,j=0,0
         while True:
-            eventlet.sleep(0)
             if self.stopFlag:
                 break
-            i+=1
+            i += 1
+            j += 1
             ret, frame = self.video.read()
+            if j < self.step:
+                continue
+            j = 0
+            eventlet.sleep(0)
             if not ret:
                 print("didn't read a frame, reach the end of stream, size=", self.buffer.qsize())
                 break
@@ -320,7 +347,11 @@ class VideoReader(object):
                     # block at most 1 second
                     if self.rotation >= 0:
                         frame = cv2.rotate(frame, self.rotation)
-                    self.buffer.put((frame, time.time()-self.t0), True, 1)
+                    if self.time_per_frame > 0:
+                        time_elapsed = i * self.time_per_frame
+                    else:
+                        time_elapsed = time.time() - self.t0
+                    self.buffer.put((frame, time_elapsed), True, 1)
                 except eventlet.queue.Full:
                     print("queue is full!")
                     pass

@@ -26,7 +26,7 @@ class Player(FuncAnimation):
         self.event_source.start()
 
 
-MAX_X_LIM = 60
+MAX_X_LIM = 10
 
 def statistic(data):
     while True:
@@ -41,7 +41,7 @@ class MainWindow(object):
         super().__init__()
         self.exitFlag = False
         self.pauseFlag = False
-        self.heartRates = deque([])  # Will store the heart rate calculated every 1 second
+        self.heartRates = deque([], MAX_X_LIM)  # Will store the heart rate calculated every 1 second
         self.timeline = deque([])
         # TODO: maximum heart rate data number. if that number is reached, we should do something. Now we do nothing
         self.max_hr_num = 10000
@@ -72,8 +72,10 @@ class MainWindow(object):
         self.ax2 = plt.axes((0.6, 0.57, 0.37, 0.38))
         self.ax2.set_xlabel('Time (sec)')
         self.ax2.set_ylabel("bpm")
-        self.ax2.set_ylim(0, 200)
+        # self.ax2.set_ylim(140, 210)  #zhai, h*10 of hsv
+        # self.ax2.set_ylim(2450, 2550) #zhai, v*15 of hsv
         self.ax2.set_xlim(0, MAX_X_LIM)
+        # self.ax2.set_xlim(0, 20)
         self.ax2.title.set_text('Heart Rate')
         self.ax3 = plt.axes((0.1, 0.16, 0.7, 0.35))
         self.thread = None
@@ -82,6 +84,7 @@ class MainWindow(object):
         self.previousFaceBox = None
         self.start_time = None
         self.bpm = None
+        self.bg = None
         self.fp = None
         self.bfp = None
         self.fp_x=[]
@@ -119,24 +122,27 @@ class MainWindow(object):
         self.reader.stop()
 
     def show(self, frame):
+
         if self.img is not None and frame is not None:
             self.img.set_array(frame)
             x = np.fromiter(self.timeline, float)
-            y = np.fromiter(self.heartRates, float)
+            y = np.fromiter(self.colorSig, float)
             left, right = self.ax2.get_xlim()
             if x[-1] >= right:
                 right = np.ceil(x[-1]).astype(int)
                 self.ax2.set_xlim(right-MAX_X_LIM, right)
+            # print(x.shape,y.shape)
+            # print("self.colorSig=", y[-1])
             self.bpm.set_data(x, y)
-            self.fp.set_data(self.fp_x,self.fp_y)
-            self.bfp.set_data(self.bfp_x, self.bfp_y)
+            self.bg.set_data(x, np.fromiter(self.detector.bg, float))
+            # self.fp.set_data(self.fp_x,self.fp_y)
+            # self.bfp.set_data(self.bfp_x, self.bfp_y)
         else:
             pass
         return self.img, self.bpm
 
     def getFrames(self):
-        # fake = np.arange(27).reshape(3,3,3)
-        # highlighted = fake
+        highlighted = None
         # t = time.time()
         while True:
             eventlet.sleep(0)
@@ -155,7 +161,6 @@ class MainWindow(object):
                 yield None
             now = time.time()
             highlighted, roi, self.previousFaceBox, bg = imgProcess.highlightRoi(frame, self.previousFaceBox)
-            # highlighted = fake
             if roi is None:
                 print("don't detect any face......")
                 yield highlighted
@@ -168,13 +173,13 @@ class MainWindow(object):
                 continue
             # Calculate heart rate every one second (once have 30-second of data)
             # bpm = imgProcess.calcBpm(roi, self.colorSig, self.counter, self.reader.fps, self.windowSize)
+            # self.detector.read_hsv_signal(roi, timestamp, self.colorSig, self.counter, self.reader.fps, bg, self.reader.videoFile)
             bpm, self.fp_x,self.fp_y, self.bfp_x,self.bfp_y = self.detector.read_signal(roi, timestamp, self.window, self.colorSig, self.counter, self.reader.fps, bg, self.reader.videoFile)
-            # bpm = np.random.random(1)[0]*100
             # print("len of signal=", len(self.colorSig))
             self.counter += 1
             if bpm is not None:
                 self.heartRates.append(bpm)  # calculate heart rate here
-                self.timeline.append(now - self.start_time)
+            self.timeline.append(now - self.start_time)
             # reader's fps is only applied for video file, not for live show.
             if self.counter == np.ceil(self.reader.fps):
                 self.counter = 0
@@ -188,16 +193,19 @@ class MainWindow(object):
         frame, timestamp = self.reader.buffer.get(block=True, timeout=0.5)
         highlighted, roi, self.previousFaceBox, bg = imgProcess.highlightRoi(frame, self.previousFaceBox)
         # at first, we only show the video, but don't calculate the bpm
-        # self.detector.read_signal(roi, timestamp, self.colorSig, self.counter, self.reader.fps) #will not calculate bpm at the beginning
+        self.detector.read_hsv_signal(roi, timestamp, self.colorSig, self.counter, self.reader.fps, bg, self.reader.videoFile) #will not calculate bpm at the beginning
         #
         # self.counter += 1
-        self.timeline.append(0)
+        self.timeline.append(timestamp)
         self.heartRates.append(0)
         self.img = self.ax1.imshow(highlighted)
         self.start_time = time.time()
-        self.bpm, = self.ax2.plot(0,0)
-        self.fp, = self.ax3.plot([0,0],'x-g', linewidth=2)
-        self.bfp, = self.ax3.plot([0,0],'o-r', linewidth=2)
+        # self.bpm, = self.ax2.plot(self.timeline, np.fromiter(self.colorSig, float), label='head')
+        self.bpm, = self.ax2.plot(self.timeline, self.colorSig, 'g', label='head')
+        print("self.colorSig=", self.colorSig[-1])
+        self.bg, = self.ax2.plot(self.timeline, np.fromiter(self.detector.bg, float), 'r', label='background')
+        # self.fp, = self.ax3.plot([0,0],'x-g', linewidth=2)
+        # self.bfp, = self.ax3.plot([0,0],'o-r', linewidth=2)
         self.running = True
         plt.show()
 
@@ -230,9 +238,11 @@ class MainWindow(object):
 np.set_printoptions(suppress=True)
 
 # window = MainWindow("/Users/jinhui/workspaces/heartrate/231A_Project/video/qijie2.mp4")
+window = MainWindow("/home/jinhui/workspaces/heartrate/231A_Project/video/qijie.mp4")
 # window = MainWindow("/home/jinhui/workspaces/heartrate/231A_Project/video/qijie2.mp4")
-window = MainWindow("/home/jinhui/workspaces/heartrate/231A_Project/video/zhai.mp4")
+# window = MainWindow("/home/jinhui/workspaces/heartrate/231A_Project/video/zhai.mp4")
 # window = MainWindow("/home/jinhui/workspaces/heartrate/231A_Project/video/mkp.mp4")
+# window = MainWindow("/home/jinhui/workspaces/heartrate/231A_Project/video/zhai1.avi")
 # window = MainWindow("/home/jinhui/workspaces/heartrate/231A_Project/video/android-1.mp4")
 # window = MainWindow("/Users/jinhui/workspaces/heartrate/231A_Project/video/android-1.mp4")
 # window=MainWindow()

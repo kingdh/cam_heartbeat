@@ -1,6 +1,6 @@
 from matplotlib.widgets import Button
 import matplotlib.pyplot as plt
-from  matplotlib.animation import FuncAnimation
+from matplotlib.animation import FuncAnimation
 import cam_heartrate.imgProcess as imgProcess
 import eventlet
 import time
@@ -10,9 +10,10 @@ import cv2
 from cam_heartrate.heartbeat_detector import HeartDetector
 import cam_heartrate.heartbeat_detector as hd
 
+
 class Player(FuncAnimation):
-    def __init__(self, fig, func,  frames=None, init_func=None, fargs=None,
-                  **kwargs):
+    def __init__(self, fig, func, frames=None, init_func=None, fargs=None,
+                 **kwargs):
         super().__init__(fig, func, frames, init_func, fargs, **kwargs)
         self.running = True
         # self.img = img
@@ -28,6 +29,7 @@ class Player(FuncAnimation):
 
 MAX_X_LIM = 60
 
+
 def statistic(data):
     while True:
         tmp = data.popleft()
@@ -36,13 +38,14 @@ def statistic(data):
             break
     return np.mean(data), np.std(data)
 
+
 class MainWindow(object):
     def __init__(self, video=None):
         super().__init__()
         self.exitFlag = False
         self.pauseFlag = False
-        self.heartRates = deque([])  # Will store the heart rate calculated every 1 second
-        self.timeline = deque([])
+        self.heartRates = deque([], MAX_X_LIM)  # Will store the heart rate calculated every 1 second
+        self.timeline = deque([], MAX_X_LIM)
         # TODO: maximum heart rate data number. if that number is reached, we should do something. Now we do nothing
         self.max_hr_num = 10000
 
@@ -56,9 +59,9 @@ class MainWindow(object):
         self.player = Player(self.fig, self.show, frames=self.getFrames, interval=70)  # Animation
         # plt.title("heart rate detection")
         # plt.ion() //not used for animation
-        ax_start = plt.axes([0.2, 0.05, 0.1, 0.055])
-        ax_pause = plt.axes([0.31, 0.05, 0.1, 0.055])
-        ax_exit = plt.axes([0.52, 0.05, 0.1, 0.055])
+        ax_start = plt.axes([0.2, 0.05, 0.1, 0.075])
+        ax_pause = plt.axes([0.31, 0.05, 0.1, 0.075])
+        ax_exit = plt.axes([0.52, 0.05, 0.1, 0.075])
         self.startbtn = Button(ax_start, 'start')
         self.startbtn.on_clicked(self.player.start)
         self.pausebtn = Button(ax_pause, 'pause')
@@ -66,28 +69,21 @@ class MainWindow(object):
         self.exitbtn = Button(ax_exit, 'exit')
         self.exitbtn.on_clicked(self.exit)
 
-        self.ax1 = plt.axes((0.02, 0.57, 0.52, 0.38))
+        self.ax1 = plt.axes((0.02, 0.25, 0.52, 0.7))
         self.ax1.set_axis_off()
         self.ax1.set_xlabel("video")
-        self.ax2 = plt.axes((0.6, 0.57, 0.37, 0.38))
+        self.ax2 = plt.axes((0.6, 0.25, 0.37, 0.7))
         self.ax2.set_xlabel('Time (sec)')
         self.ax2.set_ylabel("bpm")
         self.ax2.set_ylim(0, 200)
         self.ax2.set_xlim(0, MAX_X_LIM)
         self.ax2.title.set_text('Heart Rate')
-        self.ax3 = plt.axes((0.1, 0.16, 0.7, 0.35))
         self.thread = None
         self.running = False
         self.img = None
         self.previousFaceBox = None
         self.start_time = None
-        self.bpm = None
-        self.fp = None
-        self.bfp = None
-        self.fp_x=[]
-        self.fp_y=[]
-        self.bfp_x=[]
-        self.bfp_y=[]
+        self.bpm = 0
         self.counter = 0
         self.x = np.arange(10)
         self.detector = HeartDetector()
@@ -113,12 +109,12 @@ class MainWindow(object):
         # self.detector.output()
         plt.close(self.fig)  # will cause self.closed() is called
 
-
     def postExit(self):
         # self.clean()
         self.reader.stop()
 
     def show(self, frame):
+
         if self.img is not None and frame is not None:
             self.img.set_array(frame)
             x = np.fromiter(self.timeline, float)
@@ -126,17 +122,14 @@ class MainWindow(object):
             left, right = self.ax2.get_xlim()
             if x[-1] >= right:
                 right = np.ceil(x[-1]).astype(int)
-                self.ax2.set_xlim(right-MAX_X_LIM, right)
+                self.ax2.set_xlim(right - MAX_X_LIM, right)
             self.bpm.set_data(x, y)
-            self.fp.set_data(self.fp_x,self.fp_y)
-            self.bfp.set_data(self.bfp_x, self.bfp_y)
         else:
             pass
         return self.img, self.bpm
 
     def getFrames(self):
-        # fake = np.arange(27).reshape(3,3,3)
-        # highlighted = fake
+        highlighted = None
         # t = time.time()
         while True:
             eventlet.sleep(0)
@@ -155,7 +148,6 @@ class MainWindow(object):
                 yield None
             now = time.time()
             highlighted, roi, self.previousFaceBox, bg = imgProcess.highlightRoi(frame, self.previousFaceBox)
-            # highlighted = fake
             if roi is None:
                 print("don't detect any face......")
                 yield highlighted
@@ -168,8 +160,8 @@ class MainWindow(object):
                 continue
             # Calculate heart rate every one second (once have 30-second of data)
             # bpm = imgProcess.calcBpm(roi, self.colorSig, self.counter, self.reader.fps, self.windowSize)
-            bpm, self.fp_x,self.fp_y, self.bfp_x,self.bfp_y = self.detector.read_signal(roi, timestamp, self.window, self.colorSig, self.counter, self.reader.fps, bg, self.reader.videoFile)
-            # bpm = np.random.random(1)[0]*100
+            # bpm = self.detector.read_signal(roi, timestamp, self.colorSig, self.counter, self.reader.fps,self.reader.videoFile)
+            bpm,a,b,c,d = self.detector.read_signal(roi, timestamp, self.window, self.colorSig, self.counter, self.reader.fps, bg, self.reader.videoFile)
             # print("len of signal=", len(self.colorSig))
             self.counter += 1
             if bpm is not None:
@@ -180,7 +172,6 @@ class MainWindow(object):
                 self.counter = 0
 
             yield highlighted
-
 
     def start(self):
         if not self.reader.started:
@@ -195,9 +186,7 @@ class MainWindow(object):
         self.heartRates.append(0)
         self.img = self.ax1.imshow(highlighted)
         self.start_time = time.time()
-        self.bpm, = self.ax2.plot(0,0)
-        self.fp, = self.ax3.plot([0,0],'x-g', linewidth=2)
-        self.bfp, = self.ax3.plot([0,0],'o-r', linewidth=2)
+        self.bpm, = self.ax2.plot(0, 0)
         self.running = True
         plt.show()
 
@@ -212,6 +201,7 @@ class MainWindow(object):
             else:
                 print("both threads exit...")
                 break
+
 
 # TODO:
 #  1. realtime heartbeat measurement.
@@ -231,10 +221,9 @@ np.set_printoptions(suppress=True)
 
 # window = MainWindow("/Users/jinhui/workspaces/heartrate/231A_Project/video/qijie2.mp4")
 # window = MainWindow("/home/jinhui/workspaces/heartrate/231A_Project/video/qijie2.mp4")
-window = MainWindow("/home/jinhui/workspaces/heartrate/231A_Project/video/zhai.mp4")
-# window = MainWindow("/home/jinhui/workspaces/heartrate/231A_Project/video/mkp.mp4")
 # window = MainWindow("/home/jinhui/workspaces/heartrate/231A_Project/video/android-1.mp4")
 # window = MainWindow("/Users/jinhui/workspaces/heartrate/231A_Project/video/android-1.mp4")
+window = MainWindow("/home/jinhui/workspaces/heartrate/231A_Project/video/mkp.mp4")
 # window=MainWindow()
 window.start()
 # window.wait()
