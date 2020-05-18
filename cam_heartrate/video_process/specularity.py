@@ -76,15 +76,52 @@ def enlarge_specularity(spec_mask):
         win_size = 3x3, step_size = 1
     '''
 
-    win_size, step_size = (3, 3), 1
-    enlarged_spec = np.array(spec_mask)
-    for r in range(0, spec_mask.shape[0], step_size):
-        for c in range(0, spec_mask.shape[1], step_size):
-            # yield the current window
-            win = spec_mask[r:r + win_size[1], c:c + win_size[0]]
+    # win_size, step_size = (3, 3), 1
+    # enlarged_spec = np.array(spec_mask)
+    # for r in range(0, spec_mask.shape[0], step_size):
+    #     for c in range(0, spec_mask.shape[1], step_size):
+    #         # yield the current window
+    #         win = spec_mask[r:r + win_size[1], c:c + win_size[0]]
+    #
+    #         if win.shape[0] == win_size[0] and win.shape[1] == win_size[1]:
+    #             if win[1, 1] != 0:
+    #                 enlarged_spec[r:r + win_size[1], c:c + win_size[0]] = 255 * np.ones((3, 3), dtype=np.uint8)
 
-            if win.shape[0] == win_size[0] and win.shape[1] == win_size[1]:
-                if win[1, 1] != 0:
-                    enlarged_spec[r:r + win_size[1], c:c + win_size[0]] = 255 * np.ones((3, 3), dtype=np.uint8)
+    # fast approach only for win_size=3
+    tmp = np.ones(spec_mask.shape)
+    tmp_mask = np.where(spec_mask==0, 0, tmp)  # only contains 0 or 1.
+    b = np.diff(tmp_mask, axis=0)
+    c = np.vstack((b, tmp_mask[[-1, ], :]))
+    d = np.where(c == 1, c, tmp_mask)
+    c = np.vstack((tmp_mask[[0, ], :], b))
+    d = np.where(c == -1, 1, d)
+
+    # vertical
+    b = np.diff(tmp_mask, axis=1)
+    c = np.hstack((b, tmp_mask[:, [-1, ]]))
+    d = np.where(c == 1, c, d)
+    c = np.hstack((tmp_mask[:, [0, ]], b))
+    d = np.where(c == -1, 1, d)
+
+    # diagonal, 135 degree
+    # print(enlarged_spec)
+    b = tmp_mask[:-1, :-1]
+    # print(b)
+    b = np.vstack((np.zeros((1, b.shape[1])), b))
+    b = np.hstack((np.zeros((b.shape[0], 1)), b))
+    # print(b)
+    c = tmp_mask - b
+    d = np.where(c == 1, c, d)
+    d = np.where(c == -1, 1, d)
+    # print(d)
+    b = tmp_mask[1:, :-1]
+    # print(b)
+    b = np.vstack((b, np.zeros((1, b.shape[1]))))
+    b = np.hstack((np.zeros((b.shape[0], 1)), b))
+    c = tmp_mask - b
+    d = np.where(c == 1, c, d)
+    d = np.where(c == -1, 1, d)
+    d = d*255
+    enlarged_spec = np.where(d==255, d, spec_mask).astype('uint8')
 
     return enlarged_spec
