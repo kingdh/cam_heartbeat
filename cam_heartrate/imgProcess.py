@@ -8,7 +8,7 @@ import eventlet.queue
 import matplotlib.pyplot as plt
 import re
 import time
-from sklearn.decomposition import FastICA
+import cam_heartrate.video_process.specularity as spc
 
 # Toggle these for different ROIs
 # REMOVE_EYES = True
