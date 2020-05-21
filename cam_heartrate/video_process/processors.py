@@ -2,31 +2,74 @@ import cam_heartrate.video_process.specularity as spc
 import cv2
 import numpy as np
 import time
+import types
 
 
 class ImageProcessor(object):
-    def process(self, frames, **kwargs):
+    def process(self, frames, context):
+        j = 0
+        for frame in frames:
+            if j==0:
+                self.do_context(context)
+                j = 1
+            else:
+                yield self.process1(frame, context)
+
+    def process1(self, frame, context):
+        """only process one frame"""
+        return frame
+
+    def do_context(self, context):
         pass
 
-    def process1(self, frame, **kwargs):
-        """only process one frame"""
-        pass
+class Processors(object):
+    def __init__(self):
+        self.context = {}
+        self._processors = []
+        self.reader = None
+
+    def add_reader(self, reader):
+        self.reader = reader
+        return self
+
+    def add(self, processor):
+        self._processors.append(processor)
+        return self
+
+    def run(self):
+        if self.reader is None:
+            raise Exception("reader is None")
+
+        frames = self.reader.read(self.context)
+        for p in self._processors:
+            frames = p.process(frames, self.context)
+            if isinstance(frames, types.GeneratorType):
+                continue
+            else: # frame should be None
+                assert (self._processors[-1] == p)
+                break
 
 
 class VideoLoader(object):
-    def __init__(self, file):
-        self.file = file
+    def __init__(self, filepath):
+        self.file = filepath
         if self.file is None:
             self.cap = cv2.VideoCapture(0)
         else:
-            self.cap = cv2.VideoCapture(file)
+            self.cap = cv2.VideoCapture(filepath)
         # frame_count = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        self.width, self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        self.width, self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(
+            self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         print("video frame size:", self.width, "*", self.height)
         self.fps = int(self.cap.get(cv2.CAP_PROP_FPS))
         print("fps=", self.fps)
 
-    def read(self):
+    def read(self, context):
+        context['ori_fps'] = self.fps
+        context['fps'] = self.fps
+        context['ori_w'] = self.width
+        context['ori_h'] = self.height
+
         # video_tensor = np.zeros((frame_count, height, width, 3), dtype='float')
         x = 0
         while self.cap.isOpened():
@@ -34,7 +77,7 @@ class VideoLoader(object):
             if ret is True:
                 print("read ", x, " frame")
                 x += 1
-                yield frame
+                yield frame, x - 1
             else:
                 print("total ", x, " frames are read out")
                 break
@@ -42,46 +85,57 @@ class VideoLoader(object):
     def release(self):
         self.cap.release()
 
+
 class VideoResizer(ImageProcessor):
-    def __init__(self, ratio, ori_h=None, ori_w=None):
+    def __init__(self, ratio):
         self.ratio = ratio
-        self.ori_w = ori_w
-        self.ori_h = ori_h
-        if self.ori_h is None:
+        self.h = self.w = None
+
+    def do_context(self, context):
+        ori_w = context['ori_w']
+        ori_h = context['ori_h']
+        if ori_h is None:
             self.h = self.w = None
         else:
-            self.h = int(np.round(self.ori_h * ratio))
-            self.w = int(np.round(self.ori_w * ratio))
+            self.h = int(np.round(ori_h * self.ratio))
+            self.w = int(np.round(ori_w * self.ratio))
 
-    def process(self, frames, **kwargs):
-        for frame in frames:
-            if self.w is None:
-                shape = frame.shape
-                self.ori_h, self.ori_w = shape[0], shape[1]
-                self.h = int(np.round(self.ori_h * self.ratio))
-                self.w = int(np.round(self.ori_w * self.ratio))
-
-            resized = cv2.resize(frame, (self.w, self.h), interpolation=cv2.INTER_LINEAR)
-            # cv2.resize(frame, (self.h, self.w), interpolation=cv2.INTER_AREA)
-            yield resized
+    def process1(self, frame, context):
+        f, i = frame
+            # if self.w is None:
+            #     shape = frame.shape
+            #     self.ori_h, self.ori_w = shape[0], shape[1]
+            #     self.h = int(np.round(self.ori_h * self.ratio))
+            #     self.w = int(np.round(self.ori_w * self.ratio))
+        resized = cv2.resize(f, (self.w, self.h), interpolation=cv2.INTER_LINEAR)
+        # cv2.resize(frame, (self.h, self.w), interpolation=cv2.INTER_AREA)
+        return resized, i
 
 
 class FrameDesampler(ImageProcessor):
-    def __init__(self, ori_fps, target_fps):
-        self.ori_fps = ori_fps
+    def __init__(self, target_fps):
         self.target_fps = target_fps
-        assert(target_fps < ori_fps)
-        self.step = int(np.round(self.ori_fps/self.target_fps))
-        print("desample step = ", self.step)
+        self.step = None
 
-    def process(self, frames, **kwargs):
+    def do_context(self, context):
+        assert ('ori_fps' in context)
+        ori_fps = context['ori_fps']
+        assert (self.target_fps < ori_fps)
+        self.step = int(np.round(ori_fps / self.target_fps))
+        print("desample step = ", self.step)
+        context['fps'] = self.target_fps
+
+    def process(self, frames, context):
         i = 0
-        for frame in frames:
+        for frame, j in frames:
+            if self.step is None:
+                self.do_context(context)
             i += 1
             if i < self.step:
                 continue
-            yield frame
+            yield frame, j
             i = 0
+
 
 class FrameRotator(ImageProcessor):
     def __init__(self, rotation):
@@ -94,16 +148,17 @@ class FrameRotator(ImageProcessor):
         else:
             self.rotation = None
 
-    def process(self, frames, **kwargs):
-        for frame in frames:
+    def process(self, frames, context):
+        for frame, i in frames:
             if self.rotation is not None:
                 frame = cv2.rotate(frame, self.rotation)
-            yield frame
+            yield frame, i
+
 
 class SpecularReflectRemoval(ImageProcessor):
-    def process(self, frames, **kwargs):
+    def process(self, frames, context):
         # gray_img = spc.derive_graym(impath)
-        for frame in frames:
+        for frame, i in frames:
             gray_img = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             r_img = m_img = np.array(gray_img)
 
@@ -115,14 +170,13 @@ class SpecularReflectRemoval(ImageProcessor):
             # use opencv's inpaint methods to remove specularity
             radius = 12
             telea = cv2.inpaint(frame, enlarged_spec, radius, cv2.INPAINT_TELEA)
-        # ns = cv2.inpaint(frame, enlarged_spec, radius, cv2.INPAINT_NS)
-            yield telea
+            # ns = cv2.inpaint(frame, enlarged_spec, radius, cv2.INPAINT_NS)
+            yield telea, i
 
 
 class VideoSaver(ImageProcessor):
-    def __init__(self, output, fps):
+    def __init__(self, output):
         self.file = output
-        self.fps = fps
         self.w = None
         self.h = None
         self.writer = None
@@ -137,15 +191,17 @@ class VideoSaver(ImageProcessor):
     #         self.writer.write(frame)
     #     self.writer.release()
 
-    def process(self, frames, **kwargs):
+    def process(self, frames, context):
         i = 1
         four_cc = cv2.VideoWriter_fourcc('m', 'p', '4', 'v')
-        frame0 = frames.__next__()
+        frame0, j = frames.__next__()
+        fps = context['fps']
+        assert (fps is not None)
         if frame0 is not None:
             [self.h, self.w] = frame0.shape[0:2]
-            writer = cv2.VideoWriter(self.file, four_cc, self.fps, (self.w, self.h), 1)
+            writer = cv2.VideoWriter(self.file, four_cc, fps, (self.w, self.h), 1)
             writer.write(frame0)
-            for frame in frames:
+            for frame, j in frames:
                 writer.write(frame)
                 i += 1
             # [height, width] = video_tensor[0].shape[0:2]
@@ -154,37 +210,34 @@ class VideoSaver(ImageProcessor):
             print("total ", i, " frames are written")
             writer.release()
 
+#
+# def remove_specular(file):
+#     ts = time.time()
+#     output = file[0:-4] + str(ts) + ".mp4"
+#     reader = VideoLoader(file)
+#     desampler = FrameDesampler(reader.fps, 7)
+#     resizer = VideoResizer(0.5)
+#     writer = VideoSaver(output, 7)
+#     removal = SpecularReflectRemoval()
+#
+#     frames = reader.read()
+#     samples = desampler.process(frames)
+#     resized = resizer.process(samples)
+#     removed = removal.process(resized)
+#     writer.process(removed)
+#     # writer.process(resized)
 
-def remove_specular(file):
+
+def remove_specular1(file):
     ts = time.time()
     output = file[0:-4] + str(ts) + ".mp4"
-    reader = VideoLoader(file)
-    desampler = FrameDesampler(reader.fps, 7)
-    resizer = VideoResizer(0.5)
-    writer = VideoSaver(output, 7)
-    removal = SpecularReflectRemoval()
+    Processors().add_reader(VideoLoader(file)).add(FrameDesampler(7)).add(VideoResizer(0.5)).add(
+        SpecularReflectRemoval()).add(VideoSaver(output)).run()
 
-    frames = reader.read()
-    samples = desampler.process(frames)
-    resized = resizer.process(samples)
-    removed = removal.process(resized)
-    writer.process(removed)
-    # writer.process(resized)
-
-
-def test_save(file):
-    ts = time.time()
-    output = file[0:-4] + str(ts) + ".mp4"
-    resizer = VideoResizer(0.5)
-    reader = VideoLoader(file)
-    writer = VideoSaver(output, 29)
-    frames = reader.read()
-    resized = resizer.process(frames)
-    writer.process(resized)
 
 
 if __name__ == "__main__":
-    # file = "/home/jinhui/workspaces/heartrate/231A_Project/video/zhai.mp4"
-    file = "/Users/jinhui/workspaces/heartrate/231A_Project/video/zhai.mp4"
-    remove_specular(file)
+    file = "/home/jinhui/workspaces/heartrate/231A_Project/video/zhai.mp4"
+    # file = "/Users/jinhui/workspaces/heartrate/231A_Project/video/zhai.mp4"
+    remove_specular1(file)
     # test_save(file)
