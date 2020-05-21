@@ -30,8 +30,8 @@ def derive_saturation(img, rimg):
     # s_img = np.array(rimg)
     s1 = img[:,:,0].astype(int) + img[:,:,2].astype(int)
     s2 = 2*img[:,:,1].astype(int)
-    a = 1.5*(img[:,:,2] - rimg)
-    b = 1.5*(rimg - img[:,:,0])
+    a = (1.5*(img[:,:,2] - rimg)).astype(int)
+    b = (1.5*(rimg - img[:,:,0])).astype(int)
     s_img = np.where(s1-s2>=0, a, b)
     return s_img
     # (r, c) = s_img.shape
