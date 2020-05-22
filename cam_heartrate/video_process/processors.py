@@ -213,8 +213,11 @@ class SpecularReflectRemoval(VideoProcessor):
             r_img = m_img = np.array(gray_img)
 
             rimg = spc.derive_m(frame, r_img)
+
             s_img = spc.derive_saturation(frame, rimg)
+
             spec_mask = spc.check_pixel_specularity(rimg, s_img)
+
             enlarged_spec = spc.enlarge_specularity(spec_mask)
 
             # use opencv's inpaint methods to remove specularity

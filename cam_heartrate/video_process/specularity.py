@@ -20,7 +20,7 @@ def derive_m(img, rimg):
     #         rimg[r, c] = int(np.sum(img[r, c]) / 3.0)
     #
     # return rimg
-    rimg = np.mean(img, axis=2).astype('int')
+    rimg = np.mean(img, axis=2).astype('uint8')
     return rimg
 
 
@@ -28,11 +28,11 @@ def derive_saturation(img, rimg):
     ''' Derive staturation value for a pixel based on paper formula '''
 
     # s_img = np.array(rimg)
-    s1 = img[:,:,0].astype(int) + img[:,:,2].astype(int)
-    s2 = 2*img[:,:,1].astype(int)
-    a = (1.5*(img[:,:,2] - rimg)).astype(int)
-    b = (1.5*(rimg - img[:,:,0])).astype(int)
-    s_img = np.where(s1-s2>=0, a, b)
+    s1 = img[:,:,0] + img[:,:,2]
+    s2 = 2*(img[:,:,1].astype(int))
+    a = (1.5*(img[:,:,2] - rimg)).astype('uint8')
+    b = (1.5*(rimg - img[:,:,0])).astype('uint8')
+    s_img = np.where(s1>=s2, a, b)
     return s_img
     # (r, c) = s_img.shape
     # for ri in range(r):
@@ -48,7 +48,6 @@ def derive_saturation(img, rimg):
     # return s_img
 
 
-
 def check_pixel_specularity(mimg, simg):
     ''' Check whether a pixel is part of specular region or not'''
 
@@ -58,7 +57,6 @@ def check_pixel_specularity(mimg, simg):
     spec_mask_255 = np.empty(simg.shape, dtype=np.uint8)
     spec_mask_255.fill(255)
     spec_mask = np.where(np.logical_and(mimg>=m_max, simg<=s_max), spec_mask_255, spec_mask_0)
-    # return spec_mask
     # (rw, cl) = simg.shape
     # spec_mask = np.zeros((rw, cl), dtype=np.uint8)
     # for r in range(rw):
@@ -90,6 +88,8 @@ def enlarge_specularity(spec_mask):
     # fast approach only for win_size=3
     tmp = np.ones(spec_mask.shape)
     tmp_mask = np.where(spec_mask==0, 0, tmp)  # only contains 0 or 1.
+    tmp_mask[[0,-1],:]=0
+    tmp_mask[:,[0,-1]]=0
     b = np.diff(tmp_mask, axis=0)
     c = np.vstack((b, tmp_mask[[-1, ], :]))
     d = np.where(c == 1, c, tmp_mask)
@@ -104,23 +104,27 @@ def enlarge_specularity(spec_mask):
     d = np.where(c == -1, 1, d)
 
     # diagonal, 135 degree
-    # print(enlarged_spec)
     b = tmp_mask[:-1, :-1]
     # print(b)
     b = np.vstack((np.zeros((1, b.shape[1])), b))
     b = np.hstack((np.zeros((b.shape[0], 1)), b))
     # print(b)
     c = tmp_mask - b
-    d = np.where(c == 1, c, d)
     d = np.where(c == -1, 1, d)
-    # print(d)
+    c = c[1:, 1:]
+    c = np.vstack((c, np.zeros((1, c.shape[1]))))
+    c = np.hstack((c, np.zeros((c.shape[0], 1))))
+    d[c == 1] = 1
+
     b = tmp_mask[1:, :-1]
-    # print(b)
     b = np.vstack((b, np.zeros((1, b.shape[1]))))
     b = np.hstack((np.zeros((b.shape[0], 1)), b))
     c = tmp_mask - b
-    d = np.where(c == 1, c, d)
     d = np.where(c == -1, 1, d)
+    c = c[:-1, 1:]
+    c = np.vstack((np.zeros((1, c.shape[1])), c))
+    c = np.hstack((c, np.zeros((c.shape[0], 1))))
+    d[c == 1] = 1
     d = d*255
     enlarged_spec = np.where(d==255, d, spec_mask).astype('uint8')
 
