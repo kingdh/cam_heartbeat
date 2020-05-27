@@ -238,7 +238,7 @@ class MainWindow(object):
 np.set_printoptions(suppress=True)
 
 # window = MainWindow("/Users/jinhui/workspaces/heartrate/231A_Project/video/qijie2.mp4")
-window = MainWindow("/Users/jinhui/workspaces/heartrate/231A_Project/video/zhai1.mp4")
+window = MainWindow("/home/jinhui/workspaces/heartrate/231A_Project/video/zhai1.mp4")
 
 # window = MainWindow("/home/jinhui/workspaces/heartrate/231A_Project/video/qijie.mp4")
 # window = MainWindow("/home/jinhui/workspaces/heartrate/231A_Project/video/qijie2.mp4")

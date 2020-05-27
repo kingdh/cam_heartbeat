@@ -1,9 +1,11 @@
 import cam_heartrate.video_process.specularity as spc
 import cv2
 import numpy as np
+import scipy.signal as signal
+import numpy.linalg as linalg
 import time
 import types
-
+import cam_heartrate.imgProcess as imgProcess
 
 class VideoProcessor(object):
     def process(self, frames, context):
@@ -22,15 +24,71 @@ class VideoProcessor(object):
     def do_context(self, context):
         pass
 
+
+class WindowProcessor(VideoProcessor):
+    def __init__(self, w_size=64, overlap=1):
+        self._window_size = w_size
+        self._window = []
+        self._time = []
+        self._overlap = overlap
+        self._counter = 0
+
+    def enqueue(self, frame, ts):
+        if len(self._window) < self._window_size:
+            self._window.append(frame)
+            self._time.append(ts)
+            if len(self._window) == self._window_size:
+                self._window = np.array(self._window)
+                return True
+        else:
+            self._counter = (1 + self._counter) % self._overlap
+            self._window[0:-1] = self._window[1:]
+            self._window[-1] = frame
+            self._time[0:-1] = self._time[1:]
+            self._time[-1] = ts
+            return self._counter == 0
+
+
+class BatchWindowProcessor(WindowProcessor):
+    def _process_window(self, context):
+        """:returns: a tuple, which contains a window of processed signals and corresponding timestamps"""
+        raise NotImplementedError
+
+    def process_window(self, frames, context):
+        """output signals and times of windows_size once a time"""
+        for frame, j in frames:
+            if not isinstance(j, float):
+                # already a window
+                self._window = frame
+                self._time = j
+                yield self._process_window(context)
+            if self.enqueue(frame, j):
+                yield self._process_window(context)
+        # last window
+        if self._counter != 0:
+            yield self._process_window(context)
+
+    def process(self, frames, context):
+        windows = self.process_window(frames, context)
+        for window in windows:
+            for frame in window:
+                yield frame
+
+
 class Processors(object):
     def __init__(self):
         self.context = {}
         self._processors = []
         self.reader = None
+        self._frames = None
 
     def add_reader(self, reader):
         self.reader = reader
+        self._frames = self.reader.read(self.context)
         return self
+
+    def input(self, frames):
+        self._frames = frames
 
     def add(self, processor):
         self._processors.append(processor)
@@ -48,6 +106,17 @@ class Processors(object):
             else: # frame should be None
                 assert (self._processors[-1] == p)
                 break
+
+    def output(self):
+        if self.reader is None:
+            raise Exception("reader is None")
+
+        frames = self.reader.read(self.context)
+        for p in self._processors:
+            frames = p.process(frames, self.context)
+        # return frames
+        for f in frames:
+            yield f
 
 
 class VideoLoader(object):
@@ -72,18 +141,20 @@ class VideoLoader(object):
 
         # video_tensor = np.zeros((frame_count, height, width, 3), dtype='float')
         x = 0
+        t0 = time.time()
         while self.cap.isOpened():
             ret, frame = self.cap.read()
             if ret is True:
                 print("read ", x, " frame")
                 x += 1
-                yield frame, x - 1
+                yield frame, time.time() - t0
             else:
                 print("total ", x, " frames are read out")
                 break
 
     def release(self):
         self.cap.release()
+
 
 class VideoSegmentLoader(object):
     def __init__(self, filepath, start, length=None):
@@ -119,6 +190,7 @@ class VideoSegmentLoader(object):
 
         # video_tensor = np.zeros((frame_count, height, width, 3), dtype='float')
         x = 0
+        t0 = time.time()
         while self.cap.isOpened():
             if x == self.length:
                 break
@@ -126,7 +198,7 @@ class VideoSegmentLoader(object):
             if ret is True:
                 print("read ", x, " frame")
                 x += 1
-                yield frame, x - 1
+                yield frame, time.time() - t0
             else:
                 print("total ", x, " frames are read out")
                 break
@@ -134,6 +206,111 @@ class VideoSegmentLoader(object):
 
     def release(self):
         self.cap.release()
+
+
+class RoiIdentifier(VideoProcessor):
+    def __init__(self):
+        self.previousFaceBox = None
+
+    def process(self, frames, context): #todo: need to deal with the return values
+        for frame, j in frames:
+            self.previousFaceBox, roi, mask, bg = imgProcess.getBestROI(frame, self.previousFaceBox)
+            yield (roi, j), (bg, j)
+
+
+class FrameMean(VideoProcessor):
+    def process(self, frames, context):
+        for frame, j in frames:
+            if (frame is not None) and (np.size(frame) > 0):
+                color_channels = frame.reshape(-1, frame.shape[-1])
+                avg_color = color_channels.mean(axis=0)
+                yield avg_color, j
+
+
+class Detrend(BatchWindowProcessor):
+    def __init__(self, w_size, overlap=1, lamda=64):
+        super(Detrend, self).__init__(w_size, overlap=overlap)
+        dev2 = np.zeros((self._window_size-2, self._window_size))
+        np.fill_diagonal(dev2[:, :self._window_size-2], 1)
+        np.fill_diagonal(dev2[:, 1:self._window_size-1], -2)
+        np.fill_diagonal(dev2[:, 2:], 1)
+        I = np.eye(self._window_size)
+        self._cal = I - linalg.inv(I + lamda * lamda * np.dot(dev2.T, dev2))
+
+    def _process_window(self, context):
+        return np.dot(self._cal, self._window), self._time
+
+
+class MovingAverage(BatchWindowProcessor):
+    def __init__(self, w_size, overlap=1, ksize=3, t=3):
+        super(MovingAverage, self).__init__(w_size, overlap=overlap)
+        self._t = t
+        self._ks = ksize
+
+    def _process_window(self, context):
+        for i in range(self._t):
+            self._window = cv2.blur(self._window, ksize=self.ks)
+        return self._window
+
+
+class SigInterpolation(BatchWindowProcessor):
+    def __init__(self, w_size, int_num, overlap=1):
+        super(SigInterpolation, self).__init__(w_size, overlap=overlap)
+        self._int_num = int_num
+
+    def _process_window(self, context):
+        """here frames should already be converted to signals
+        :returns a series of windows of signals"""
+        even_times = np.linspace(self._time[0], self.time[-1], self._int_num)
+        context['fps'] = self._int_num/(self.time[-1] - self.time[0])
+        signals = np.array(self._window)
+        if signals.ndim > 1:
+            interpolated = np.array([np.interp(even_times, self._time, signals[:, i]) for i in range(signals.shape[-1])]).T
+        else:
+            interpolated = np.interp(even_times, self.times, signals)
+
+        return interpolated, even_times
+
+
+class HammingWindow(BatchWindowProcessor):
+    def _process_window(self, context):
+        hamming_win = np.hamming(self._window_size)
+        assert(isinstance(self._window, np.ndarray))
+        if self._window.ndim > 1:
+            hamming_win = hamming_win.reshape((hamming_win.shape[0], 1)).repeat(self._window.shape[-1], axis=1)
+        return hamming_win * self._window, self._time
+
+
+class WindowNormalizer(BatchWindowProcessor):
+    def _process_window(self, context):
+        mean = np.mean(self._window, axis=0)
+        std = np.std(self._window, axis=0)
+        return (self._window - mean)/std, self._time
+
+
+class ButterWorth(BatchWindowProcessor):
+    def __init__(self, high, low, order=4, w_size=64, overlap=1):
+        super(ButterWorth, self).__init__(w_size, overlap=overlap)
+        self._h = high
+        self._l = low
+        self._order = order
+
+    def _process_window(self, context):
+        fps = context['fps']
+        wn = [self._l*2/fps, self._h*2/fps]
+        b, a = signal.butter(self._order, wn, 'bandpass')
+        return signal.filtfilt(b, a, self._window), self._time
+
+
+class FFT(BatchWindowProcessor):
+    def _process_window(self, context):
+        """
+        :returns a tuple, which contains a sub-tuple of power spectrum and corresponding frequencies,
+        and the timestamp"""
+        fps = context['fps']
+        power_spec = np.abs(np.fft.rfft(self._window, axis=0)) ** 2
+        freqs = np.fft.fftfreq(self._window_size, 1.0 / fps)
+        return (power_spec, freqs), self._time
 
 
 class VideoResizer(VideoProcessor):
@@ -152,11 +329,6 @@ class VideoResizer(VideoProcessor):
 
     def process1(self, frame, context):
         f, i = frame
-            # if self.w is None:
-            #     shape = frame.shape
-            #     self.ori_h, self.ori_w = shape[0], shape[1]
-            #     self.h = int(np.round(self.ori_h * self.ratio))
-            #     self.w = int(np.round(self.ori_w * self.ratio))
         resized = cv2.resize(f, (self.w, self.h), interpolation=cv2.INTER_LINEAR)
         # cv2.resize(frame, (self.h, self.w), interpolation=cv2.INTER_AREA)
         return resized, i
@@ -259,6 +431,7 @@ class VideoSaver(VideoProcessor):
                 i += 1
             print("total ", i, " frames are written")
             writer.release()
+
 
 class JpgSaver(VideoProcessor):
     def __init__(self, output):

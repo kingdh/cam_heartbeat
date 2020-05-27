@@ -109,7 +109,7 @@ def distance(roi1, roi2):
     return sum((roi1[i] - roi2[i])**2 for i in range(len(roi1)))
 
 
-def getBestROI(frame, faceCascade, previousFaceBox):
+def getBestROI(frame, previousFaceBox):
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     faces = faceCascade.detectMultiScale(gray, scaleFactor=1.1,
                                          minNeighbors=5, minSize=(MIN_FACE_SIZE, MIN_FACE_SIZE),
@@ -272,7 +272,7 @@ def getFrameRotation(videoFile):
     return rotation
 
 def highlightRoi(frame, previousFaceBox):
-    previousFaceBox, roi, mask, bg = getBestROI(frame, faceCascade, previousFaceBox)
+    previousFaceBox, roi, mask, bg = getBestROI(frame, previousFaceBox)
     if roi is None:
         return frame, None, previousFaceBox, bg
     changed = frame
@@ -385,7 +385,7 @@ def testOutPutFrame():
     framefile = "/Users/jinhui/workspaces/heartrate/231A_Project/test1.png"
     frame = cv2.imread(framefile)
     faceCascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
-    box, roi, mask = getBestROI(frame, faceCascade, None)
+    box, roi, mask = getBestROI(frame, None)
     changed = changeFrame(roi)
     plotFrame(frame, changed)
 
