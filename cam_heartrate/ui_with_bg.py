@@ -125,16 +125,16 @@ class MainWindow(object):
 
         if self.img is not None and frame is not None:
             self.img.set_array(frame)
-            x = np.fromiter(self.timeline, float)
-            y = np.fromiter(self.colorSig, float)
-            left, right = self.ax2.get_xlim()
-            if x[-1] >= right:
-                right = np.ceil(x[-1]).astype(int)
-                self.ax2.set_xlim(right-MAX_X_LIM, right)
+            # x = np.fromiter(self.timeline, float)
+            # y = np.fromiter(self.colorSig, float)
+            # left, right = self.ax2.get_xlim()
+            # if x[-1] >= right:
+            #     right = np.ceil(x[-1]).astype(int)
+            #     self.ax2.set_xlim(right-MAX_X_LIM, right)
             # print(x.shape,y.shape)
             # print("self.colorSig=", y[-1])
-            self.bpm.set_data(x, y)
-            self.bg.set_data(x, np.fromiter(self.detector.bg, float))
+            # self.bpm.set_data(x, y)
+            # self.bg.set_data(x, np.fromiter(self.detector.bg, float))
             # self.fp.set_data(self.fp_x,self.fp_y)
             # self.bfp.set_data(self.bfp_x, self.bfp_y)
         else:
