@@ -10,29 +10,32 @@ import cam_heartrate.imgProcess as imgProcess
 
 
 class VideoProcessor(object):
-    def process(self, frames, context, offset=0):
+    def process(self, frames, context):
         j = 0
         for frame in frames:
             if j == 0:
                 self.do_context(context)
                 j = 1
             else:
-                yield self.process1(frame, context, offset)
+                yield self.process1(frame, context)
 
-    def process1(self, frame, context, offset=0):
+    def process1(self, frame, context):
         """only process one frame"""
-        return frame if offset == 0 else frame[offset]
+        return frame
 
     def do_context(self, context):
         pass
 
 
 class SignalProcessor(object):
-    def process(self, signals, context, offset=0):
+    def process(self, signals, context):
         raise NotImplementedError
 
 
 class WindowProcessor(VideoProcessor):
+    """todo: currently the window size of processors in the pipeline should be same,
+     but we might support extend the window later. """
+
     def __init__(self, w_size=64, overlap=1):
         self._window_size = w_size
         self._window = []
@@ -61,28 +64,26 @@ class BatchWindowProcessor(WindowProcessor):
         """:returns: a tuple, which contains a window of processed signals and corresponding timestamps"""
         raise NotImplementedError
 
-    def process_window(self, frames, context, offset):
+    def process_window(self, frames, context):
         """output signals and times of windows_size once a time"""
         i = 0
-        for x in frames:
-            frame, j = x[offset] if offset != 0 else x
+        for frame, j in frames:
             i += 1
             if not isinstance(j, float):
-                # already a window
+                # input frame already is a window
                 self._window = frame
                 self._time = j
                 yield self._process_window(context)
-            if self.enqueue(frame, j):
+            elif self.enqueue(frame, j):
                 yield self._process_window(context)
         # last window
         if self._counter != 0:
             yield self._process_window(context)
 
-    def process(self, frames, context, offset=0):
-        windows = self.process_window(frames, context, offset)
+    def process(self, frames, context):
+        windows = self.process_window(frames, context)
         for window in windows:
-            for frame in window:
-                yield frame
+            yield window
 
 
 class Processors(object):
@@ -91,48 +92,27 @@ class Processors(object):
         self._processors = []
         self.reader = None
         self._frames = None
-        self._forks = []
-        self._offset = 0
 
     def add_reader(self, reader):
         self.reader = reader
         self._frames = self.reader.read(self.context)
         return self
 
-    def input(self, frames, offset=0):
+    def input(self, frames):
         self._frames = frames
-        self._offset = offset
 
     def add(self, processor):
-        try:
-            n = processor.split
-            forks = []
-            for i in range(n-1):
-                forks.append(Processors())
-            self._forks.append(forks)
-            self._processors.append(processor)
-            return self, forks
-        except AttributeError:
-            self._processors.append(processor)
-            return self
+        self._processors.append(processor)
+        return self
 
     def run(self):
+        """used to convert original video to a new video or images"""
         if self.reader is None:
             raise Exception("reader is None")
-        forks = iter(self._forks)
         # frames = self.reader.read(self.context)
         frames = self._frames
         for p in self._processors:
-            frames = p.process(frames, self.context, self._offset)
-            self._offset = 0
-            try:
-                n = p.split
-                f = next(forks)
-                assert(n == len(f))
-                for i in range(n-1):
-                    f[i].input(frames, i+1)
-            except AttributeError:
-                pass
+            frames = p.process(frames, self.context)
 
             if isinstance(frames, types.GeneratorType):
                 continue
@@ -144,19 +124,9 @@ class Processors(object):
         if self._frames is None:
             raise Exception("frame is None")
         frames = self._frames
-        forks = iter(self._forks)
         # frames = self.reader.read(self.context)
         for p in self._processors:
-            frames = p.process(frames, self.context, self._offset)
-            self._offset = 0
-            try:
-                n = p.split
-                f = next(forks)
-                assert(n-1 == len(f))
-                for i in range(n-1):
-                    f[i].input(frames, i+1)
-            except AttributeError:
-                pass
+            frames = p.process(frames, self.context)
         # return frames
         for f in frames:
             yield f
@@ -176,7 +146,7 @@ class VideoLoader(object):
         self.fps = int(self.cap.get(cv2.CAP_PROP_FPS))
         print("fps=", self.fps)
         if self.file is not None:
-            self.slot = 1/self.fps
+            self.slot = 1 / self.fps
 
     def read(self, context):
         context['ori_fps'] = self.fps
@@ -261,13 +231,21 @@ class VideoSegmentLoader(object):
 class RoiIdentifier(VideoProcessor):
     def __init__(self):
         self.previousFaceBox = None
-        self.split = 2
 
-    def process(self, frames, context, offset=0):  # todo: need to deal with the return values
-        for x in frames:
-            frame, j = x[offset] if offset != 0 else x
+    def process(self, frames, context):
+        for frame, j in frames:
             self.previousFaceBox, roi, mask, bg = imgProcess.getBestROI(frame, self.previousFaceBox)
-            yield (roi, j), (bg, j)
+            yield roi, j
+
+
+class BackgroundIdentify(VideoProcessor):
+    def __init__(self):
+        self.previousFaceBox = None
+
+    def process(self, frames, context):
+        for frame, j in frames:
+            self.previousFaceBox, roi, mask, bg = imgProcess.getBestROI(frame, self.previousFaceBox)
+            yield bg, j
 
 
 class FrameMean(VideoProcessor):
@@ -277,9 +255,8 @@ class FrameMean(VideoProcessor):
         """:arg axis default None means average value of all the channel."""
         self._axis = axis
 
-    def process(self, frames, context, offset=0):
-        for x in frames:
-            frame, j = x[offset] if offset != 0 else x
+    def process(self, frames, context):
+        for frame, j in frames:
             if (frame is not None) and (np.size(frame) > 0):
                 color_channels = frame.reshape(-1, frame.shape[-1])
                 avg_color = color_channels.mean(axis=self._axis) if self._axis is not None else color_channels.mean()
@@ -308,8 +285,8 @@ class MovingAverage(BatchWindowProcessor):
 
     def _process_window(self, context):
         for i in range(self._t):
-            self._window = cv2.blur(self._window, ksize=self.ks)
-        return self._window
+            self._window = cv2.blur(self._window, (self._ks, self._ks))
+        return self._window, self._time
 
 
 class ICA(BatchWindowProcessor):
@@ -330,14 +307,14 @@ class SigInterpolation(BatchWindowProcessor):
     def _process_window(self, context):
         """here frames should already be converted to signals
         :returns a series of windows of signals"""
-        even_times = np.linspace(self._time[0], self.time[-1], self._int_num)
-        context['fps'] = self._int_num / (self.time[-1] - self.time[0])
+        even_times = np.linspace(self._time[0], self._time[-1], self._int_num)
+        context['fps'] = self._int_num / (self._time[-1] - self._time[0])
         signals = np.array(self._window)
         if signals.ndim > 1:
             interpolated = np.array(
                 [np.interp(even_times, self._time, signals[:, i]) for i in range(signals.shape[-1])]).T
         else:
-            interpolated = np.interp(even_times, self.times, signals)
+            interpolated = np.interp(even_times, self._time, signals)
         return interpolated, even_times
 
 
@@ -397,9 +374,8 @@ class VideoResizer(VideoProcessor):
             self.h = int(np.round(ori_h * self.ratio))
             self.w = int(np.round(ori_w * self.ratio))
 
-    def process1(self, frame, context, offset = 0):
-        x = frame[offset] if offset != 0 else frame
-        f, i = x
+    def process1(self, frame, context):
+        f, i = frame
         resized = cv2.resize(f, (self.w, self.h), interpolation=cv2.INTER_LINEAR)
         # cv2.resize(frame, (self.h, self.w), interpolation=cv2.INTER_AREA)
         return resized, i
@@ -418,10 +394,9 @@ class FrameDesampler(VideoProcessor):
         print("desample step = ", self.step)
         context['fps'] = self.target_fps
 
-    def process(self, frames, context, offset=0):
+    def process(self, frames, context):
         i = 0
-        for x in frames:
-            frame, j = x[offset] if offset != 0 else x
+        for frame, j in frames:
             if self.step is None:
                 self.do_context(context)
             i += 1
@@ -442,19 +417,17 @@ class FrameRotator(VideoProcessor):
         else:
             self.rotation = None
 
-    def process(self, frames, context, offset=0):
-        for x in frames:
-            frame, j = x[offset] if offset != 0 else x
+    def process(self, frames, context):
+        for frame, j in frames:
             if self.rotation is not None:
                 frame = cv2.rotate(frame, self.rotation)
             yield frame, j
 
 
 class SpecularReflectRemoval(VideoProcessor):
-    def process(self, frames, context, offset=0):
+    def process(self, frames, context):
         # gray_img = spc.derive_graym(impath)
-        for x in frames:
-            frame, j = x[offset] if offset != 0 else x
+        for frame, j in frames:
             gray_img = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             r_img = m_img = np.array(gray_img)
 
@@ -485,18 +458,20 @@ class MaxPowerSpec(SignalProcessor):
         self._num = max_num
         self._valid_idx = None
 
-    def process(self, signals, context, offset=0):
+    def process(self, signals, context):
         """":arg: signals should be the result of FFT.process() method"""
         for p, ts in signals:
             power_spec, freqs = p
             valid_idx = self._valid_idx if self._valid_idx is not None else np.where(
                 (freqs >= MIN_HR_BPM / SEC_PER_MIN) & (freqs <= MAX_HR_BMP / SEC_PER_MIN))
+            if power_spec.ndim > 1: # merge power of 3 channels
+                power_spec = np.sum(power_spec, axis=-1)
             valid_pwr = power_spec[valid_idx]
             idx = np.argsort(valid_pwr)
             valid_freqs = freqs[valid_idx]
-            sorted_freq = [valid_freqs[i] * 60 for i in idx[len(idx):len(idx) - self._num:-1]]
-            sorted_pwr = [valid_pwr[i] for i in idx[len(idx):len(idx) - self._num:-1]]
-            yield (sorted_freq, sorted_pwr), ts
+            sorted_hr = [valid_freqs[i] * 60 for i in idx[len(idx):len(idx) - self._num - 1:-1]]
+            sorted_pwr = [valid_pwr[i] for i in idx[len(idx):len(idx) - self._num -1:-1]]
+            yield (sorted_hr, sorted_pwr), ts
 
 
 class VideoSaver(VideoProcessor):
@@ -516,19 +491,17 @@ class VideoSaver(VideoProcessor):
     #         self.writer.write(frame)
     #     self.writer.release()
 
-    def process(self, frames, context, offset=0):
+    def process(self, frames, context):
         i = 1
         four_cc = cv2.VideoWriter_fourcc('m', 'p', '4', 'v')
-        frame0 = frames.__next__()
-        frame0, j = frame0[offset] if offset != 0 else frame0
+        frame0, j = frames.__next__()
         fps = context['fps']
         assert (fps is not None)
         if frame0 is not None:
             [self.h, self.w] = frame0.shape[0:2]
             writer = cv2.VideoWriter(self.file, four_cc, fps, (self.w, self.h), 1)
             writer.write(frame0)
-            for x in frames:
-                frame, j = x[offset] if offset != 0 else x
+            for frame, j in frames:
                 writer.write(frame)
                 i += 1
             print("total ", i, " frames are written")
@@ -542,9 +515,8 @@ class JpgSaver(VideoProcessor):
         self.h = None
         self.writer = None
 
-    def process(self, frames, context, offset=0):
-        for x in frames:
-            frame, j = x[offset] if offset != 0 else x
+    def process(self, frames, context):
+        for frame, j in frames:
             cv2.imwrite(self.file, frame)
 
 
@@ -581,11 +553,23 @@ def get_img(file):
 
 
 def get_pwr(file):
-    p1, p2 = Processors().add_reader(VideoLoader(file)).add(RoiIdentifier())
-    sigs = p1.add(FrameMean(axis=0)).add(Detrend(2, lamda=2)).add(
-        MovingAverage(2)).output()
+    w_size = 64
+    sigs = Processors().add_reader(VideoLoader(file)).add(RoiIdentifier()).add(FrameMean(axis=0)).add(
+        Detrend(w_size, lamda=w_size)).add(
+        MovingAverage(w_size)).add(ICA(w_size)).add(SigInterpolation(w_size, w_size)).add(HammingWindow(w_size)).add(
+        WindowNormalizer(w_size)).add(FFT()).add(MaxPowerSpec(5)).output()
+
+    bg = Processors().add_reader(VideoLoader(file)).add(RoiIdentifier()).add(FrameMean(axis=0)).add(
+        Detrend(w_size, lamda=w_size)).add(
+        MovingAverage(w_size)).add(ICA(w_size)).add(SigInterpolation(w_size, w_size)).add(HammingWindow(w_size)).add(
+        WindowNormalizer(w_size)).add(FFT()).add(MaxPowerSpec(5)).output()
+
     for sig in sigs:
-        print(sig)
+        (hr, pr), ts = sig
+        (bg_noise, bg_pr), ts = next(bg)
+        continue
+
+
 
 
 if __name__ == "__main__":
